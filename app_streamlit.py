@@ -2,6 +2,7 @@ import streamlit as st
 import psycopg2
 import pandas as pd
 import re
+import uuid
 from difflib import SequenceMatcher
 
 
@@ -779,6 +780,51 @@ elif current_page == "🏥 القسم الداخلي":
         if "بسيطة" in category_name:
             has_anesthesia = st.checkbox("💉 العملية لها تخدير؟", value=True)
     
+    # ===== بنود إضافية =====
+    st.markdown("---")
+    st.markdown("**➕ بنود إضافية:**")
+    
+    # تهيئة القائمة في session_state
+    if 'additional_items' not in st.session_state:
+        st.session_state.additional_items = []
+    
+    # زر إضافة بند جديد
+    if st.button("➕ إضافة بند إضافي", key="add_additional_item"):
+        st.session_state.additional_items.append({
+            'id': str(uuid.uuid4()),
+            'name': '',
+            'price': 0.0
+        })
+        st.rerun()
+    
+    # عرض البنود الإضافية
+    if st.session_state.additional_items:
+        for idx, item in enumerate(st.session_state.additional_items):
+            item_id = item['id']
+            col1, col2, col3 = st.columns([3, 2, 1])
+            with col1:
+                item['name'] = st.text_input(
+                    "اسم البند",
+                    value=item['name'],
+                    key=f"add_name_{item_id}",
+                    placeholder="اكتب اسم البند الإضافي",
+                    label_visibility="collapsed"
+                )
+            with col2:
+                item['price'] = st.number_input(
+                    "السعر",
+                    min_value=0.0,
+                    value=float(item['price']),
+                    step=1.0,
+                    format="%.2f",
+                    key=f"add_price_{item_id}",
+                    label_visibility="collapsed"
+                )
+            with col3:
+                if st.button("🗑️", key=f"remove_{item_id}"):
+                    st.session_state.additional_items.pop(idx)
+                    st.rerun()
+    
     # ============ حساب الفاتورة ============
     st.markdown("---")
     st.subheader("📋 الفاتورة")
@@ -895,6 +941,11 @@ elif current_page == "🏥 القسم الداخلي":
     # 8. المستلزمات
     if supplies_value > 0:
         invoice.append(("المستلزمات", supplies_value))
+    
+    # 8.5 البنود الإضافية (قبل الخدمة عشان تتحسب عليها نسبة الخدمة)
+    for item in st.session_state.get('additional_items', []):
+        if item['name'] and item['price'] > 0:
+            invoice.append((item['name'], item['price']))
     
     # 9. الخدمة (20%)
     subtotal_before_service = sum(v for _, v in invoice)
