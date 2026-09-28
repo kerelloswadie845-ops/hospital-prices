@@ -63,6 +63,33 @@ def ensure_tables_exist():
             )
         ''')
         
+        # جدول الإعدادات الثابتة
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS inpatient_settings (
+                id SERIAL PRIMARY KEY,
+                setting_key TEXT UNIQUE NOT NULL,
+                setting_value REAL NOT NULL,
+                description TEXT
+            )
+        ''')
+        
+        # جدول أسعار السي آرم الافتراضية
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS c_arm_prices (
+                id SERIAL PRIMARY KEY,
+                item_name TEXT UNIQUE NOT NULL,
+                price REAL NOT NULL DEFAULT 0
+            )
+        ''')
+        
+        # جدول أسعار التشاور لكل شركة
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS consultation_prices (
+                company_id INTEGER PRIMARY KEY REFERENCES companies(id),
+                price REAL NOT NULL DEFAULT 0
+            )
+        ''')
+        
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -1057,12 +1084,6 @@ elif current_page == "🏥 القسم الداخلي":
     room_fee = 0
     
     
-    # 2. العملية
-    surgeon_fee = 0
-    anesthesia_fee = 0
-    assistant_fee = 0
-    room_fee = 0
-    
     if surgery_data:
         service_id = surgery_data[0]
         
@@ -1703,6 +1724,139 @@ elif st.session_state.is_admin and current_page == "⚙️ إعدادات الق
                         consultation_values[company_id] = new_price
                 
                 submit_consultation = st.form_submit_button("💾 حفظ أسعار التشاور", type="primary", use_container_width=True)
+
+                            # ==================== tab6: خصومات البنود لكل شركة ====================
+    with tab6:
+        st.subheader("🏷️ خصومات البنود لكل شركة")
+        st.markdown("حدد نسبة خصم لكل بند في القسم الداخلي (اترك 0 لو مفيش خصم)")
+        
+        companies_df = get_all_companies()
+        
+        if companies_df.empty:
+            st.warning("⚠️ لا توجد شركات مسجلة.")
+        else:
+            company_name = st.selectbox("🏢 اختر الشركة", companies_df['name'].tolist(), key="discount_company")
+            company_id = int(companies_df[companies_df['name'] == company_name]['id'].values[0])
+            
+            st.markdown("---")
+            
+            with st.form(key=f"discounts_form_{company_id}"):
+                discount_values = {}
+                
+                for item_key, item_label in INPATIENT_DISCOUNT_ITEMS.items():
+                    current_discount = get_company_item_discount(company_id, item_key)
+                    
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.write(f"**{item_label}**")
+                    with col2:
+                        new_discount = st.number_input(
+                            "نسبة الخصم %",
+                            min_value=0.0,
+                            max_value=100.0,
+                            value=float(current_discount),
+                            step=0.5,
+                            format="%.1f",
+                            key=f"disc_{company_id}_{item_key}",
+                            label_visibility="collapsed"
+                        )
+                        discount_values[item_key] = new_discount
+                
+                submit_discounts = st.form_submit_button(
+                    f"💾 حفظ الخصومات لشركة {company_name}",
+                    type="primary",
+                    use_container_width=True
+                )
+            
+            if submit_discounts:
+                saved = 0
+                for item_key, discount in discount_values.items():
+                    success, _ = update_company_item_discount(company_id, item_key, discount)
+                    if success:
+                        saved += 1
+                st.success(f"✅ تم حفظ خصومات {saved} بند لشركة {company_name} بنجاح!")
+                st.rerun()
+            
+            # ====== معالجة الحفظ برة الـ form ======
+            if submit:
+                conn = get_db_connection()
+                cur = conn.cursor()
+
+                saved_companies = []
+                unchanged_companies = []
+                skipped_companies = []
+
+                for company_id, price in prices_dict.items():
+                    if price > 0:
+                        cur.execute(
+                            'SELECT price FROM base_prices WHERE company_id = %s AND service_id = %s',
+                            (company_id, service_id)
+                        )
+                        old_result = cur.fetchone()
+                        old_price = old_result[0] if old_result else None
+
+                        cur.execute('SELECT name FROM companies WHERE id = %s', (company_id,))
+                        company_name = cur.fetchone()[0]
+
+                        if old_price is None or old_price != price:
+                            try:
+                                cur.execute('''
+                                    INSERT INTO base_prices (company_id, service_id, price)
+                                    VALUES (%s, %s, %s)
+                                    ON CONFLICT (company_id, service_id)
+                                    DO UPDATE SET price = EXCLUDED.price
+                                ''', (company_id, service_id, price))
+
+                                saved_companies.append({
+                                    'name': company_name,
+                                    'old_price': old_price,
+                                    'new_price': price
+                                })
+                            except Exception as e:
+                                st.error(f"خطأ في حفظ سعر {company_name}: {e}")
+                        else:
+                            unchanged_companies.append(company_name)
+                    else:
+                        cur.execute('SELECT name FROM companies WHERE id = %s', (company_id,))
+                        company_name = cur.fetchone()[0]
+                        skipped_companies.append(company_name)
+
+                conn.commit()
+                cur.close()
+                conn.close()
+
+                if saved_companies:
+                    st.success(f"✅ تم حفظ أسعار {len(saved_companies)} شركة بنجاح!")
+
+                    st.subheader("📋 الشركات اللي اتغير سعرها:")
+                    detail_data = []
+                    for item in saved_companies:
+                        if item['old_price'] is None:
+                            detail_data.append({
+                                "الشركة": item['name'],
+                                "السعر القديم": "غير مسعرة",
+                                "السعر الجديد": f"{item['new_price']:,.2f} ج.م"
+                            })
+                        else:
+                            detail_data.append({
+                                "الشركة": item['name'],
+                                "السعر القديم": f"{item['old_price']:,.2f} ج.م",
+                                "السعر الجديد": f"{item['new_price']:,.2f} ج.م"
+                            })
+
+                    st.dataframe(
+                        pd.DataFrame(detail_data),
+                        hide_index=True,
+                        use_container_width=True
+                    )
+                else:
+                    st.info("ℹ️ لم يتم تغيير أي سعر.")
+
+                if unchanged_companies:
+                    st.info(f"ℹ️ {len(unchanged_companies)} شركة لم يتغير سعرها.")
+
+                if skipped_companies:
+                    st.warning(f"⚠️ تم تخطي {len(skipped_companies)} شركة (السعر = 0).")
             
             if submit_consultation:
                 saved = 0
@@ -1886,12 +2040,7 @@ elif st.session_state.is_admin and current_page == "✏️ تعديل الأسع
 
                 st.markdown("---")
 
-                # زر الحفظ جوه الـ form
-                submit = st.form_submit_button(
-                    "💾 حفظ جميع الأسعار",
-                    type="primary",
-                    use_container_width=True
-                )
+
 
                 # ==================== tab6: خصومات البنود لكل شركة ====================
     with tab6:
@@ -2025,3 +2174,9 @@ elif st.session_state.is_admin and current_page == "✏️ تعديل الأسع
 
                 if skipped_companies:
                     st.warning(f"⚠️ تم تخطي {len(skipped_companies)} شركة (السعر = 0).")
+                                # زر الحفظ جوه الـ form
+                submit = st.form_submit_button(
+                    "💾 حفظ جميع الأسعار",
+                    type="primary",
+                    use_container_width=True
+                )
