@@ -15,6 +15,62 @@ def get_db_connection():
     conn.set_client_encoding('UTF8')
     return conn
 
+def ensure_tables_exist():
+    """التأكد من وجود الجداول الجديدة وإنشائها لو مش موجودة"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        # جدول خصومات البنود
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS company_item_discounts (
+                company_id INTEGER REFERENCES companies(id),
+                item_key TEXT NOT NULL,
+                discount_percent REAL NOT NULL DEFAULT 0,
+                PRIMARY KEY (company_id, item_key)
+            )
+        ''')
+        
+        # جدول أسعار السي آرم لكل شركة
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS company_c_arm_prices (
+                company_id INTEGER REFERENCES companies(id),
+                item_name TEXT NOT NULL,
+                price REAL NOT NULL DEFAULT 0,
+                PRIMARY KEY (company_id, item_name)
+            )
+        ''')
+        
+        # جدول أسعار الإقامة لكل شركة
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS company_inpatient_prices (
+                company_id INTEGER REFERENCES companies(id),
+                inpatient_id INTEGER REFERENCES inpatient_services(id),
+                room_price REAL NOT NULL DEFAULT 0,
+                medical_supervision REAL NOT NULL DEFAULT 0,
+                nursing_care REAL NOT NULL DEFAULT 0,
+                PRIMARY KEY (company_id, inpatient_id)
+            )
+        ''')
+        
+        # جدول أسعار تصنيفات العمليات لكل شركة
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS company_surgery_category_prices (
+                company_id INTEGER REFERENCES companies(id),
+                category_id INTEGER REFERENCES surgery_categories(id),
+                surgeon_fee REAL NOT NULL DEFAULT 0,
+                room_fee REAL NOT NULL DEFAULT 0,
+                PRIMARY KEY (company_id, category_id)
+            )
+        ''')
+        
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"⚠️ خطأ في إنشاء الجداول: {e}")
+    finally:
+        cur.close()
+        conn.close()
+
 def update_inpatient_room(room_id, room_price, medical_supervision, nursing_care):
     """تحديث أسعار نوع إقامة"""
     conn = get_db_connection()
@@ -659,6 +715,9 @@ def upload_price_list_from_excel(df, company_id):
 
 # ==================== واجهة التطبيق ====================
 st.set_page_config(page_title="نظام إدارة أسعار العقود الطبية", page_icon="🏥", layout="wide")
+
+# التأكد من وجود الجداول
+ensure_tables_exist()
 
 if 'is_admin' not in st.session_state:
     st.session_state.is_admin = False
