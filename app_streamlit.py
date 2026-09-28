@@ -730,6 +730,22 @@ elif current_page == "🏥 القسم الداخلي":
             inpatient_dict[room_type] = row
         selected_inpatient = st.selectbox("🛏️ نوع الإقامة", inpatient_list)
         inpatient_data = inpatient_dict.get(selected_inpatient) if selected_inpatient != "لا توجد إقامة" else None
+
+    # ===== عدد أيام الإقامة =====
+    inpatient_days = 1.0
+    if inpatient_data:
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            inpatient_days = st.number_input(
+                "📅 عدد الأيام",
+                min_value=0.5,
+                value=1.0,
+                step=0.5,
+                format="%.1f",
+                help="أدخل 0.5 لنصف يوم، 1 ليوم كامل، 2 ليومين... إلخ"
+            )
+        with col2:
+            st.info(f"💡 الإقامة: **{inpatient_days}** يوم × 3 بنود (غرفة + إشراف + تمريض)")
     
     # ===== الصف الثاني: المستلزمات + الأدوية + التحاليل =====
     col1, col2, col3 = st.columns(3)
@@ -840,7 +856,6 @@ elif current_page == "🏥 القسم الداخلي":
     total = 0
     
     # 1. الإقامة
-        # 1. الإقامة
     if inpatient_data:
         inpatient_id = inpatient_data[0]
         
@@ -855,11 +870,20 @@ elif current_page == "🏥 القسم الداخلي":
             medical_supervision = inpatient_data[3]
             nursing_care = inpatient_data[4]
         
-        # إضافة بنود الإقامة للفاتورة (برة الـ if/else)
-                # إضافة بنود الإقامة للفاتورة (برة الـ if/else)
-        invoice.append((f"الإقامة ({inpatient_data[1]})", room_price))
-        invoice.append(("اشراف طبي", medical_supervision))
-        invoice.append(("تمريض مركز", nursing_care))
+        # ضرب الأسعار في عدد الأيام
+        total_room = room_price * inpatient_days
+        total_supervision = medical_supervision * inpatient_days
+        total_nursing = nursing_care * inpatient_days
+        
+        # إضافة بنود الإقامة للفاتورة
+        if inpatient_days == 1:
+            invoice.append((f"الإقامة ({inpatient_data[1]})", total_room))
+            invoice.append(("اشراف طبي", total_supervision))
+            invoice.append(("تمريض مركز", total_nursing))
+        else:
+            invoice.append((f"الإقامة ({inpatient_data[1]}) × {inpatient_days} يوم", total_room))
+            invoice.append((f"اشراف طبي × {inpatient_days} يوم", total_supervision))
+            invoice.append((f"تمريض مركز × {inpatient_days} يوم", total_nursing))
     
     # 2. العملية
     surgeon_fee = 0
