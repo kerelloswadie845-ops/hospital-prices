@@ -282,6 +282,103 @@ def get_all_surgery_services():
     cur.close()
     conn.close()
     return results
+# ==================== قائمة بنود القسم الداخلي القابلة للخصم ====================
+INPATIENT_DISCOUNT_ITEMS = {
+    'room_stay': '🛏️ الإقامة (الغرفة)',
+    'supervision': '👨‍⚕️ الإشراف الطبي',
+    'nursing': '💉 التمريض المركّز',
+    'surgeon': '👨‍⚕️ اتعاب الجراح',
+    'anesthesia': '💉 التخدير',
+    'assistant': '🩺 مساعد الجراح',
+    'room_operation': '🏥 فتح غرفة العمليات',
+    'consultation': '💬 التشاور',
+    'labs': '🧪 التحاليل',
+    'plates': '🔩 شرائح ومسامير',
+    'scope': '🔬 المنظار',
+    'c_arm': '🩻 السي آرم',
+    'supplies': '📦 المستلزمات',
+    'meds': '💊 الأدوية',
+}
+
+def get_company_item_discount(company_id, item_key):
+    """جلب نسبة خصم بند معين لشركة"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute('''
+        SELECT discount_percent FROM company_item_discounts
+        WHERE company_id = %s AND item_key = %s
+    ''', (company_id, item_key))
+    result = cur.fetchone()
+    cur.close()
+    conn.close()
+    return result[0] if result else 0
+
+def update_company_item_discount(company_id, item_key, discount_percent):
+    """تحديث خصم بند معين لشركة"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute('''
+            INSERT INTO company_item_discounts (company_id, item_key, discount_percent)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (company_id, item_key) 
+            DO UPDATE SET discount_percent = EXCLUDED.discount_percent
+        ''', (company_id, item_key, discount_percent))
+        conn.commit()
+        return True, "✅ تم تحديث الخصم"
+    except Exception as e:
+        conn.rollback()
+        return False, f"❌ {e}"
+    finally:
+        cur.close()
+        conn.close()
+
+def get_company_c_arm_prices(company_id):
+    """جلب أسعار السي آرم لشركة - لو مش موجودة ترجع الافتراضية"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # جلب كل بنود السي آرم الأساسية
+    cur.execute('SELECT item_name, price FROM c_arm_prices ORDER BY id')
+    default_items = cur.fetchall()
+    
+    # جلب الأسعار المخصصة للشركة
+    cur.execute('''
+        SELECT item_name, price FROM company_c_arm_prices
+        WHERE company_id = %s
+    ''', (company_id,))
+    company_items = dict(cur.fetchall())
+    
+    cur.close()
+    conn.close()
+    
+    # دمج: لو الشركة ليها سعر مخصص، استخدمه؛ غير كده استخدم الافتراضي
+    result = []
+    for item_name, default_price in default_items:
+        price = company_items.get(item_name, default_price)
+        result.append((item_name, price))
+    
+    return result
+
+def update_company_c_arm_price(company_id, item_name, price):
+    """تحديث سعر بند سي آرم لشركة"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute('''
+            INSERT INTO company_c_arm_prices (company_id, item_name, price)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (company_id, item_name) 
+            DO UPDATE SET price = EXCLUDED.price
+        ''', (company_id, item_name, price))
+        conn.commit()
+        return True, "✅ تم تحديث السعر"
+    except Exception as e:
+        conn.rollback()
+        return False, f"❌ {e}"
+    finally:
+        cur.close()
+        conn.close()
 
 # ==================== دوال المصادقة ====================
 ADMIN_PASSWORD = "admin123"
@@ -875,6 +972,15 @@ elif current_page == "🏥 القسم الداخلي":
         total_supervision = medical_supervision * inpatient_days
         total_nursing = nursing_care * inpatient_days
         
+        # تطبيق الخصومات
+        if company_id:
+            disc_room = get_company_item_discount(company_id, 'room_stay')
+            disc_sup = get_company_item_discount(company_id, 'supervision')
+            disc_nur = get_company_item_discount(company_id, 'nursing')
+            total_room = total_room * (1 - disc_room / 100)
+            total_supervision = total_supervision * (1 - disc_sup / 100)
+            total_nursing = total_nursing * (1 - disc_nur / 100)
+        
         # إضافة بنود الإقامة للفاتورة
         if inpatient_days == 1:
             invoice.append((f"الإقامة ({inpatient_data[1]})", total_room))
@@ -919,9 +1025,16 @@ elif current_page == "🏥 القسم الداخلي":
             surgeon_fee = surgery_data[3]
             room_fee = surgery_data[4]
         
-        # حساب التخدير والمساعد (برة if/else عشان يشتغلوا في كل الحالات)
+        # حساب التخدير والمساعد
         anesthesia_fee = surgeon_fee * (anesthesia_percent / 100) if has_anesthesia else 0
         assistant_fee = surgeon_fee * (assistant_percent / 100)
+        
+        # تطبيق الخصومات
+        if company_id:
+            surgeon_fee = surgeon_fee * (1 - get_company_item_discount(company_id, 'surgeon') / 100)
+            room_fee = room_fee * (1 - get_company_item_discount(company_id, 'room_operation') / 100)
+            anesthesia_fee = anesthesia_fee * (1 - get_company_item_discount(company_id, 'anesthesia') / 100)
+            assistant_fee = assistant_fee * (1 - get_company_item_discount(company_id, 'assistant') / 100)
         
         # إضافة البنود للفاتورة
         invoice.append(("اتعاب جراح", surgeon_fee))
@@ -934,36 +1047,50 @@ elif current_page == "🏥 القسم الداخلي":
     if company_id and has_anesthesia and surgery_data:
         consultation = get_consultation_price(company_id)
         if consultation > 0:
+            consultation = consultation * (1 - get_company_item_discount(company_id, 'consultation') / 100)
             invoice.append(("التشاور", consultation))
     
-    # 4. التحاليل
+    # 4. التحاليل (مع الخصم)
     if labs_value > 0:
+        if company_id:
+            labs_value = labs_value * (1 - get_company_item_discount(company_id, 'labs') / 100)
         invoice.append(("التحاليل", labs_value))
     
-    # 5. شرائح ومسامير
+    # 5. شرائح ومسامير (مع الخصم)
     if has_plates and plates_value > 0:
+        if company_id:
+            plates_value = plates_value * (1 - get_company_item_discount(company_id, 'plates') / 100)
         invoice.append(("شرائح ومسامير", plates_value))
         profit = plates_value * (profit_margin_percent / 100)
         invoice.append((f"هامش ربح {int(profit_margin_percent)}%", profit))
     
-    # 6. المنظار
+    # 6. المنظار (مع الخصم)
     if has_scope and scope_value > 0:
+        if company_id:
+            scope_value = scope_value * (1 - get_company_item_discount(company_id, 'scope') / 100)
         invoice.append(("المنظار", scope_value))
     
-    # 7. السي آرم
-    if has_c_arm:
-        c_arm_prices = get_c_arm_prices()
-        c_arm_dict = {row[1]: row[2] for row in c_arm_prices}
+    # 7. السي آرم (أسعار خاصة بالشركة + خصم)
+    if has_c_arm and company_id:
+        c_arm_prices = get_company_c_arm_prices(company_id)
+        c_arm_dict = {name: price for name, price in c_arm_prices}
+        
+        c_arm_discount = 1 - (get_company_item_discount(company_id, 'c_arm') / 100)
         
         if c_arm_device_count > 0:
-            invoice.append(("جهاز السي آرم", c_arm_device_count * c_arm_dict.get('جهاز السي آرم', 0)))
+            val = c_arm_device_count * c_arm_dict.get('جهاز السي آرم', 0) * c_arm_discount
+            invoice.append(("جهاز السي آرم", val))
         if c_arm_images_count > 0:
-            invoice.append(("صور السي آرم", c_arm_images_count * c_arm_dict.get('صور السي آرم', 0)))
+            val = c_arm_images_count * c_arm_dict.get('صور السي آرم', 0) * c_arm_discount
+            invoice.append(("صور السي آرم", val))
         if c_arm_tech_count > 0:
-            invoice.append(("فني السي آرم", c_arm_tech_count * c_arm_dict.get('فني السي آرم', 0)))
+            val = c_arm_tech_count * c_arm_dict.get('فني السي آرم', 0) * c_arm_discount
+            invoice.append(("فني السي آرم", val))
     
-    # 8. المستلزمات
+    # 8. المستلزمات (مع الخصم)
     if supplies_value > 0:
+        if company_id:
+            supplies_value = supplies_value * (1 - get_company_item_discount(company_id, 'supplies') / 100)
         invoice.append(("المستلزمات", supplies_value))
     
     # 8.5 البنود الإضافية (قبل الخدمة عشان تتحسب عليها نسبة الخدمة)
@@ -976,8 +1103,10 @@ elif current_page == "🏥 القسم الداخلي":
     service_fee = subtotal_before_service * (service_percent / 100)
     invoice.append(("الخدمة", service_fee))
     
-    # 10. الأدوية
+    # 10. الأدوية (مع الخصم)
     if meds_value > 0:
+        if company_id:
+            meds_value = meds_value * (1 - get_company_item_discount(company_id, 'meds') / 100)
         invoice.append(("الادوية", meds_value))
     
     # 11. الدمغة
@@ -1234,12 +1363,13 @@ elif st.session_state.is_admin and current_page == "🏷️ إدارة الخص�
 elif st.session_state.is_admin and current_page == "⚙️ إعدادات القسم الداخلي":
     st.header("⚙️ إعدادات القسم الداخلي")
     
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "⚙️ الإعدادات الثابتة",
         "🛏️ أسعار الإقامة",
         "🔪 أسعار تصنيفات العمليات",
         "🩻 أسعار السي آرم",
-        "💬 سعر التشاور لكل شركة"
+        "💬 سعر التشاور لكل شركة",
+        "🏷️ خصومات البنود"
     ])
     
     # ==================== tab1: الإعدادات الثابتة ====================
@@ -1431,38 +1561,55 @@ elif st.session_state.is_admin and current_page == "⚙️ إعدادات الق
                     st.rerun()
     
     
-    # ==================== tab4: أسعار السي آرم ====================
+    # ==================== tab4: أسعار السي آرم (لكل شركة) ====================
     with tab4:
         st.subheader("🩻 أسعار السي آرم")
-        st.markdown("حدد سعر كل بند من بنود السي آرم")
+        st.markdown("حدد سعر كل بند من بنود السي آرم لكل شركة على حدة")
         
-        c_arm_prices = get_c_arm_prices()
+        companies_df = get_all_companies()
         
-        with st.form(key="c_arm_form"):
-            c_arm_values = {}
-            for row_id, item_name, price in c_arm_prices:
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    st.write(f"**{item_name}**")
-                with col2:
-                    new_price = st.number_input(
-                        "السعر",
-                        min_value=0.0,
-                        value=float(price),
-                        step=1.0,
-                        format="%.2f",
-                        key=f"c_arm_{row_id}",
-                        label_visibility="collapsed"
-                    )
-                    c_arm_values[item_name] = new_price
+        if companies_df.empty:
+            st.warning("⚠️ لا توجد شركات مسجلة.")
+        else:
+            company_name = st.selectbox("🏢 اختر الشركة", companies_df['name'].tolist(), key="c_arm_company")
+            company_id = int(companies_df[companies_df['name'] == company_name]['id'].values[0])
             
-            submit_c_arm = st.form_submit_button("💾 حفظ أسعار السي آرم", type="primary", use_container_width=True)
-        
-        if submit_c_arm:
-            for item_name, price in c_arm_values.items():
-                update_c_arm_price(item_name, price)
-            st.success("✅ تم حفظ أسعار السي آرم بنجاح!")
-            st.rerun()
+            st.markdown("---")
+            
+            c_arm_prices = get_company_c_arm_prices(company_id)
+            
+            with st.form(key=f"c_arm_form_{company_id}"):
+                c_arm_values = {}
+                for item_name, price in c_arm_prices:
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.write(f"**{item_name}**")
+                    with col2:
+                        new_price = st.number_input(
+                            "السعر",
+                            min_value=0.0,
+                            value=float(price),
+                            step=1.0,
+                            format="%.2f",
+                            key=f"c_arm_{company_id}_{item_name}",
+                            label_visibility="collapsed"
+                        )
+                        c_arm_values[item_name] = new_price
+                
+                submit_c_arm = st.form_submit_button(
+                    f"💾 حفظ أسعار السي آرم لشركة {company_name}",
+                    type="primary",
+                    use_container_width=True
+                )
+            
+            if submit_c_arm:
+                saved = 0
+                for item_name, price in c_arm_values.items():
+                    success, _ = update_company_c_arm_price(company_id, item_name, price)
+                    if success:
+                        saved += 1
+                st.success(f"✅ تم حفظ أسعار {saved} بند لشركة {company_name} بنجاح!")
+                st.rerun()
     
     # ==================== tab5: سعر التشاور لكل شركة ====================
     with tab5:
@@ -1687,6 +1834,58 @@ elif st.session_state.is_admin and current_page == "✏️ تعديل الأسع
                     use_container_width=True
                 )
 
+                # ==================== tab6: خصومات البنود لكل شركة ====================
+    with tab6:
+        st.subheader("🏷️ خصومات البنود لكل شركة")
+        st.markdown("حدد نسبة خصم لكل بند في القسم الداخلي (اترك 0 لو مفيش خصم)")
+        
+        companies_df = get_all_companies()
+        
+        if companies_df.empty:
+            st.warning("⚠️ لا توجد شركات مسجلة.")
+        else:
+            company_name = st.selectbox("🏢 اختر الشركة", companies_df['name'].tolist(), key="discount_company")
+            company_id = int(companies_df[companies_df['name'] == company_name]['id'].values[0])
+            
+            st.markdown("---")
+            
+            with st.form(key=f"discounts_form_{company_id}"):
+                discount_values = {}
+                
+                for item_key, item_label in INPATIENT_DISCOUNT_ITEMS.items():
+                    current_discount = get_company_item_discount(company_id, item_key)
+                    
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.write(f"**{item_label}**")
+                    with col2:
+                        new_discount = st.number_input(
+                            "نسبة الخصم %",
+                            min_value=0.0,
+                            max_value=100.0,
+                            value=float(current_discount),
+                            step=0.5,
+                            format="%.1f",
+                            key=f"disc_{company_id}_{item_key}",
+                            label_visibility="collapsed"
+                        )
+                        discount_values[item_key] = new_discount
+                
+                submit_discounts = st.form_submit_button(
+                    f"💾 حفظ الخصومات لشركة {company_name}",
+                    type="primary",
+                    use_container_width=True
+                )
+            
+            if submit_discounts:
+                saved = 0
+                for item_key, discount in discount_values.items():
+                    success, _ = update_company_item_discount(company_id, item_key, discount)
+                    if success:
+                        saved += 1
+                st.success(f"✅ تم حفظ خصومات {saved} بند لشركة {company_name} بنجاح!")
+                st.rerun()
+            
             # ====== معالجة الحفظ برة الـ form ======
             if submit:
                 conn = get_db_connection()
