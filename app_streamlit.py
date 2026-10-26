@@ -514,8 +514,7 @@ if current_page == "🔍 البحث عن سعر":
 
             for item in st.session_state.invoice_cart:
                 # ضفنا مبلغ الخصم في الجدول ولونه أحمر
-                table_rows += f"<tr><td>{item['service']}</td><td>{item['qty']}</td><td>{item['base_price']:,.2f}</td><td>{item['discount']}%</td><td style='color:#EF4444;'>{item['discount_amount']:,.2f}</td><td>{item['patient_share']:,.2f}</td><td>{item['company_share']:,.2f}</td></tr>"
-                
+table_rows += f"<tr><td>{item['service']}</td><td>{item['qty']}</td><td>{item['base_price']:,.2f}</td><td>{item['discount']}%</td><td style='color:#EF4444;'>{item.get('discount_amount', 0.0):,.2f}</td><td>{item['patient_share']:,.2f}</td><td>{item['company_share']:,.2f}</td></tr>"                
                 grand_total_base += item['total_base']
                 grand_total_discount += item['discount_amount']
                 grand_total_patient += item['patient_share']
