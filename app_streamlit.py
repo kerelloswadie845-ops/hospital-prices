@@ -403,6 +403,7 @@ if current_page == "🔍 البحث عن سعر":
         padding: 12px 10px;
         border-bottom: 1px dashed #E2E8F0;
         color: #334155;
+        text-align: right; /* السطر ده اللي هيظبط المحاذاة */
     }
     .receipt-row {
         display: flex;
