@@ -681,19 +681,8 @@ elif st.session_state.is_admin and current_page == "🏷️ إدارة الخص�
     if companies_df.empty or categories_df.empty:
         st.warning("⚠️ يجب أن يكون لديك شركات وتصنيفات مسجلة أولاً.")
     else:
-        col1, col2 = st.columns([1, 1])
-        
-        # 1. البحث عن الشركة
-        with col1:
-            search_company = st.text_input("🔍 ابحث عن الشركة:", placeholder="اكتب جزءاً من الاسم...").strip()
-            filtered_companies = companies_df[companies_df['name'].str.contains(search_company, case=False, na=False)]
-            
-        with col2:
-            if filtered_companies.empty:
-                st.warning("لا توجد شركات مطابقة للبحث.")
-                company_name = None
-            else:
-                company_name = st.selectbox("🏢 اختر الشركة", filtered_companies['name'].tolist(), key="discount_matrix_company")
+        # 1. اختيار الشركة (قائمة واحدة نظيفة)
+        company_name = st.selectbox("🏢 اختر الشركة المراد تعديل خصوماتها:", companies_df['name'].tolist())
                 
         if company_name:
             company_id = int(companies_df[companies_df['name'] == company_name]['id'].values[0])
@@ -702,7 +691,7 @@ elif st.session_state.is_admin and current_page == "🏷️ إدارة الخص�
             st.subheader(f"📋 خصومات شركة: {company_name}")
             
             # 2. أدوات الخصم الشامل (Bulk Discount)
-            st.info("💡 **حركة سريعة:** لو الشركة واخدة خصم شامل ماعدا كام ملحق، استخدم الأدوات دي عشان تملأ الجدول أوتوماتيك بدل ما تكتب في كل خانة.")
+            st.info("💡 **حركة سريعة:** لو الشركة واخدة خصم شامل ماعدا كام ملحق، استخدم الأدوات دي عشان تملأ الجدول أوتوماتيك.")
             
             with st.expander("🪄 تطبيق خصم شامل مع استثناءات", expanded=True):
                 col_bulk1, col_bulk2, col_bulk3 = st.columns([1, 2, 1])
@@ -714,7 +703,6 @@ elif st.session_state.is_admin and current_page == "🏷️ إدارة الخص�
                     st.write("")
                     st.write("")
                     if st.button("🪄 تطبيق على الكل", use_container_width=True):
-                        # تحديث الـ session state للجدول
                         if 'discount_matrix_data' not in st.session_state:
                             st.session_state.discount_matrix_data = {}
                         
@@ -731,7 +719,6 @@ elif st.session_state.is_admin and current_page == "🏷️ إدارة الخص�
             conn = get_db_connection()
             cur = conn.cursor()
             
-            # جلب بيانات التصنيفات مع عدد الخدمات
             cur.execute('''
                 SELECT c.id, c.name, COUNT(s.id) as service_count
                 FROM categories c
@@ -741,16 +728,13 @@ elif st.session_state.is_admin and current_page == "🏷️ إدارة الخص�
             ''')
             categories_with_counts = cur.fetchall()
             
-            # جلب الخصومات الحالية للشركة
             cur.execute('SELECT category_id, discount_percent FROM discounts WHERE company_id = %s', (company_id,))
             current_discounts = dict(cur.fetchall())
             cur.close()
             conn.close()
             
-            # تجهيز البيانات
             matrix_data = []
             for cat_id, cat_name, service_count in categories_with_counts:
-                # لو فيه بيانات محفوظة في الـ session state من زرار "تطبيق على الكل" نستخدمها
                 if 'discount_matrix_data' in st.session_state and int(cat_id) in st.session_state.discount_matrix_data:
                     discount_val = st.session_state.discount_matrix_data[int(cat_id)]
                 else:
@@ -813,10 +797,11 @@ elif st.session_state.is_admin and current_page == "🏷️ إدارة الخص�
                     conn.commit()
                     st.cache_data.clear()
                     
-                    # تنظيف الـ session state بعد الحفظ
                     if 'discount_matrix_data' in st.session_state:
                         del st.session_state.discount_matrix_data
                         
+                    # إظهار إشعار عائم (Toast) + الرسالة الأساسية
+                    st.toast(f"✅ تم الحفظ بنجاح لـ {company_name}", icon="🎉")
                     flash_success(f"✅ تم تحديث خصومات {company_name} بنجاح!")
                     st.rerun()
                 except Exception as e:
