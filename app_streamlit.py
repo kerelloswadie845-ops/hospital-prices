@@ -700,9 +700,34 @@ elif st.session_state.is_admin and current_page == "🏷️ إدارة الخص�
             
             st.markdown("---")
             st.subheader(f"📋 خصومات شركة: {company_name}")
-            st.markdown("قم بتعديل النسبة المئوية أمام كل ملحق (اتركها 0 إذا لم يكن هناك خصم).")
             
-            # 2. جلب كل التصنيفات وعدد الخدمات فيها
+            # 2. أدوات الخصم الشامل (Bulk Discount)
+            st.info("💡 **حركة سريعة:** لو الشركة واخدة خصم شامل ماعدا كام ملحق، استخدم الأدوات دي عشان تملأ الجدول أوتوماتيك بدل ما تكتب في كل خانة.")
+            
+            with st.expander("🪄 تطبيق خصم شامل مع استثناءات", expanded=True):
+                col_bulk1, col_bulk2, col_bulk3 = st.columns([1, 2, 1])
+                with col_bulk1:
+                    bulk_discount = st.number_input("النسبة الشاملة (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.5)
+                with col_bulk2:
+                    exceptions = st.multiselect("الملاحق المستثناة (لن يطبق عليها الخصم):", categories_df['name'].tolist())
+                with col_bulk3:
+                    st.write("")
+                    st.write("")
+                    if st.button("🪄 تطبيق على الكل", use_container_width=True):
+                        # تحديث الـ session state للجدول
+                        if 'discount_matrix_data' not in st.session_state:
+                            st.session_state.discount_matrix_data = {}
+                        
+                        for cat_id, cat_name in zip(categories_df['id'], categories_df['name']):
+                            if cat_name in exceptions:
+                                st.session_state.discount_matrix_data[int(cat_id)] = 0.0
+                            else:
+                                st.session_state.discount_matrix_data[int(cat_id)] = bulk_discount
+                        st.rerun()
+
+            st.markdown("---")
+            
+            # 3. جلب البيانات وعرض الجدول
             conn = get_db_connection()
             cur = conn.cursor()
             
@@ -719,29 +744,34 @@ elif st.session_state.is_admin and current_page == "🏷️ إدارة الخص�
             # جلب الخصومات الحالية للشركة
             cur.execute('SELECT category_id, discount_percent FROM discounts WHERE company_id = %s', (company_id,))
             current_discounts = dict(cur.fetchall())
-            
             cur.close()
             conn.close()
             
-            # 3. تجهيز مصفوفة البيانات للجدول
+            # تجهيز البيانات
             matrix_data = []
             for cat_id, cat_name, service_count in categories_with_counts:
+                # لو فيه بيانات محفوظة في الـ session state من زرار "تطبيق على الكل" نستخدمها
+                if 'discount_matrix_data' in st.session_state and int(cat_id) in st.session_state.discount_matrix_data:
+                    discount_val = st.session_state.discount_matrix_data[int(cat_id)]
+                else:
+                    discount_val = current_discounts.get(cat_id, 0.0)
+                    
                 matrix_data.append({
                     "ID": cat_id,
                     "الملحق (التصنيف)": cat_name,
                     "عدد الخدمات": service_count,
-                    "نسبة الخصم (%)": current_discounts.get(cat_id, 0.0)
+                    "نسبة الخصم (%)": discount_val
                 })
                 
             df_matrix = pd.DataFrame(matrix_data)
             
-            # 4. عرض الجدول التفاعلي (Data Editor)
+            # 4. عرض الجدول
             edited_df = st.data_editor(
                 df_matrix,
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "ID": None, # إخفاء الـ ID
+                    "ID": None,
                     "الملحق (التصنيف)": st.column_config.TextColumn("الملحق (التصنيف)", disabled=True, width="large"),
                     "عدد الخدمات": st.column_config.NumberColumn("عدد الخدمات", disabled=True, width="small"),
                     "نسبة الخصم (%)": st.column_config.NumberColumn(
@@ -752,12 +782,13 @@ elif st.session_state.is_admin and current_page == "🏷️ إدارة الخص�
                         format="%.1f",
                         width="medium"
                     )
-                }
+                },
+                key=f"editor_{company_id}"
             )
             
             st.markdown("---")
             
-            # 5. حفظ كل الخصومات مرة واحدة
+            # 5. الحفظ النهائي
             if st.button("💾 حفظ جميع الخصومات", type="primary", use_container_width=True):
                 conn = get_db_connection()
                 cur = conn.cursor()
@@ -769,7 +800,6 @@ elif st.session_state.is_admin and current_page == "🏷️ إدارة الخص�
                         discount_val = float(row['نسبة الخصم (%)'])
                         
                         if discount_val > 0:
-                            # إضافة أو تحديث
                             cur.execute('''
                                 INSERT INTO discounts (company_id, category_id, discount_percent)
                                 VALUES (%s, %s, %s)
@@ -778,14 +808,15 @@ elif st.session_state.is_admin and current_page == "🏷️ إدارة الخص�
                             ''', (company_id, cat_id, discount_val))
                             saved_count += 1
                         else:
-                            # لو النسبة 0، يفضل نمسح الخصم من الداتابيس عشان تفضل نضيفة
-                            cur.execute('''
-                                DELETE FROM discounts 
-                                WHERE company_id = %s AND category_id = %s
-                            ''', (company_id, cat_id))
+                            cur.execute('DELETE FROM discounts WHERE company_id = %s AND category_id = %s', (company_id, cat_id))
                             
                     conn.commit()
                     st.cache_data.clear()
+                    
+                    # تنظيف الـ session state بعد الحفظ
+                    if 'discount_matrix_data' in st.session_state:
+                        del st.session_state.discount_matrix_data
+                        
                     flash_success(f"✅ تم تحديث خصومات {company_name} بنجاح!")
                     st.rerun()
                 except Exception as e:
