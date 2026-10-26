@@ -673,40 +673,128 @@ elif st.session_state.is_admin and current_page == "🧪 إدارة الخدما
 
 # ==================== إدارة الخصومات ====================
 elif st.session_state.is_admin and current_page == "🏷️ إدارة الخصومات":
-    st.header("🏷️ إدارة الخصومات على الفئات")
-    companies_df = get_all_companies(); categories_df = get_all_categories()
-    if companies_df.empty or categories_df.empty: st.warning("⚠️ يجب أن يكون لديك شركات وتصنيفات مسجلة أولاً.")
+    st.header("🏷️ إدارة خصومات الشركات (مصفوفة الملاحق)")
+    
+    companies_df = get_all_companies()
+    categories_df = get_all_categories()
+    
+    if companies_df.empty or categories_df.empty:
+        st.warning("⚠️ يجب أن يكون لديك شركات وتصنيفات مسجلة أولاً.")
     else:
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns([1, 1])
+        
+        # 1. البحث عن الشركة
         with col1:
-            company_name = st.selectbox("🏢 اختر الشركة", companies_df['name'].tolist())
-            company_id = int(companies_df[companies_df['name'] == company_name]['id'].values[0])
+            search_company = st.text_input("🔍 ابحث عن الشركة:", placeholder="اكتب جزءاً من الاسم...").strip()
+            filtered_companies = companies_df[companies_df['name'].str.contains(search_company, case=False, na=False)]
+            
         with col2:
-            category_name = st.selectbox("📂 اختر التصنيف (الملحق)", categories_df['name'].tolist())
-            category_id = int(categories_df[categories_df['name'] == category_name]['id'].values[0])
-            conn = get_db_connection(); cur = conn.cursor(); cur.execute('SELECT COUNT(*) FROM services WHERE category_id = %s', (category_id,))
-            st.caption(f"📊 عدد الخدمات في هذا التصنيف: {cur.fetchone()[0]}"); cur.close(); conn.close()
-        with col3:
-            conn = get_db_connection(); cur = conn.cursor()
-            cur.execute('SELECT discount_percent FROM discounts WHERE company_id = %s AND category_id = %s', (company_id, category_id))
-            current_discount = cur.fetchone(); cur.close(); conn.close()
-            default_discount = current_discount[0] if current_discount else 0.0
-            discount_percent = st.number_input("🏷️ نسبة الخصم (%)", min_value=0.0, max_value=100.0, value=float(default_discount), step=0.5, format="%.1f")
-            if current_discount: st.info(f"ℹ️ الخصم الحالي: {current_discount[0]}%")
-            else: st.info("ℹ️ لا يوجد خصم حالياً")
-        if st.button("💾 حفظ الخصم", type="primary"):
-            if discount_percent >= 0:
-                success, message = add_discount(company_id, category_id, discount_percent)
-                if success: flash_success(message); st.rerun()
-                else: flash_error(message); st.rerun()
-            else: flash_warning("⚠️ الرجاء إدخال نسبة خصم صحيحة"); st.rerun()
-
-        st.markdown("---"); st.subheader("📋 خصومات الشركة الحالية")
-        conn = get_db_connection()
-        discounts_df = pd.read_sql_query('SELECT cat.name as category, d.discount_percent FROM discounts d JOIN categories cat ON cat.id = d.category_id WHERE d.company_id = %s ORDER BY cat.name', conn, params=(company_id,))
-        conn.close()
-        if not discounts_df.empty: st.dataframe(discounts_df, column_config={"category": "التصنيف", "discount_percent": "نسبة الخصم"}, hide_index=True, use_container_width=True)
-        else: st.info("📭 لا توجد خصومات مسجلة لهذه الشركة")
+            if filtered_companies.empty:
+                st.warning("لا توجد شركات مطابقة للبحث.")
+                company_name = None
+            else:
+                company_name = st.selectbox("🏢 اختر الشركة", filtered_companies['name'].tolist(), key="discount_matrix_company")
+                
+        if company_name:
+            company_id = int(companies_df[companies_df['name'] == company_name]['id'].values[0])
+            
+            st.markdown("---")
+            st.subheader(f"📋 خصومات شركة: {company_name}")
+            st.markdown("قم بتعديل النسبة المئوية أمام كل ملحق (اتركها 0 إذا لم يكن هناك خصم).")
+            
+            # 2. جلب كل التصنيفات وعدد الخدمات فيها
+            conn = get_db_connection()
+            cur = conn.cursor()
+            
+            # جلب بيانات التصنيفات مع عدد الخدمات
+            cur.execute('''
+                SELECT c.id, c.name, COUNT(s.id) as service_count
+                FROM categories c
+                LEFT JOIN services s ON s.category_id = c.id
+                GROUP BY c.id, c.name
+                ORDER BY c.id
+            ''')
+            categories_with_counts = cur.fetchall()
+            
+            # جلب الخصومات الحالية للشركة
+            cur.execute('SELECT category_id, discount_percent FROM discounts WHERE company_id = %s', (company_id,))
+            current_discounts = dict(cur.fetchall())
+            
+            cur.close()
+            conn.close()
+            
+            # 3. تجهيز مصفوفة البيانات للجدول
+            matrix_data = []
+            for cat_id, cat_name, service_count in categories_with_counts:
+                matrix_data.append({
+                    "ID": cat_id,
+                    "الملحق (التصنيف)": cat_name,
+                    "عدد الخدمات": service_count,
+                    "نسبة الخصم (%)": current_discounts.get(cat_id, 0.0)
+                })
+                
+            df_matrix = pd.DataFrame(matrix_data)
+            
+            # 4. عرض الجدول التفاعلي (Data Editor)
+            edited_df = st.data_editor(
+                df_matrix,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "ID": None, # إخفاء الـ ID
+                    "الملحق (التصنيف)": st.column_config.TextColumn("الملحق (التصنيف)", disabled=True, width="large"),
+                    "عدد الخدمات": st.column_config.NumberColumn("عدد الخدمات", disabled=True, width="small"),
+                    "نسبة الخصم (%)": st.column_config.NumberColumn(
+                        "نسبة الخصم (%)",
+                        min_value=0.0,
+                        max_value=100.0,
+                        step=0.5,
+                        format="%.1f",
+                        width="medium"
+                    )
+                }
+            )
+            
+            st.markdown("---")
+            
+            # 5. حفظ كل الخصومات مرة واحدة
+            if st.button("💾 حفظ جميع الخصومات", type="primary", use_container_width=True):
+                conn = get_db_connection()
+                cur = conn.cursor()
+                saved_count = 0
+                
+                try:
+                    for _, row in edited_df.iterrows():
+                        cat_id = int(row['ID'])
+                        discount_val = float(row['نسبة الخصم (%)'])
+                        
+                        if discount_val > 0:
+                            # إضافة أو تحديث
+                            cur.execute('''
+                                INSERT INTO discounts (company_id, category_id, discount_percent)
+                                VALUES (%s, %s, %s)
+                                ON CONFLICT (company_id, category_id)
+                                DO UPDATE SET discount_percent = EXCLUDED.discount_percent
+                            ''', (company_id, cat_id, discount_val))
+                            saved_count += 1
+                        else:
+                            # لو النسبة 0، يفضل نمسح الخصم من الداتابيس عشان تفضل نضيفة
+                            cur.execute('''
+                                DELETE FROM discounts 
+                                WHERE company_id = %s AND category_id = %s
+                            ''', (company_id, cat_id))
+                            
+                    conn.commit()
+                    st.cache_data.clear()
+                    flash_success(f"✅ تم تحديث خصومات {company_name} بنجاح!")
+                    st.rerun()
+                except Exception as e:
+                    conn.rollback()
+                    flash_error(f"❌ حدث خطأ أثناء الحفظ: {e}")
+                    st.rerun()
+                finally:
+                    cur.close()
+                    conn.close()
 
 
 # ==================== إعدادات القسم الداخلي ====================
