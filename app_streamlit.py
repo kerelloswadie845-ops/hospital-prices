@@ -425,8 +425,6 @@ if current_page == "🔍 البحث عن سعر":
     """, unsafe_allow_html=True)
 
     st.header("🔍 البحث عن سعر خدمة")
-    
-    # تنبيه بشكل شيك
     st.info("📌 **ملاحظة:** هذه الصفحة مخصصة لخدمات العيادات الخارجية (كشوفات، تحاليل، أشعة، إلخ).")
 
     companies_df = get_all_companies()
@@ -435,10 +433,8 @@ if current_page == "🔍 البحث عن سعر":
     if companies_df.empty or services_df.empty:
         st.warning("⚠️ تأكد من وجود شركات وخدمات مسجلة في النظام.")
     else:
-        # ===== صندوق البحث =====
         with st.container(border=True):
             st.markdown("<h3 style='text-align: center; color: #334155; margin-bottom: 25px;'>⚙️ اختر تفاصيل الخدمة</h3>", unsafe_allow_html=True)
-            
             col1, col2 = st.columns(2)
             with col1:
                 company_name = st.selectbox("🏢 الشركة", companies_df['name'].tolist())
@@ -456,7 +452,6 @@ if current_page == "🔍 البحث عن سعر":
             st.markdown("<br>", unsafe_allow_html=True)
             search_btn = st.button("🔍 ابحث الآن", type="primary", use_container_width=True)
 
-        # ===== عرض النتائج =====
         if search_btn and service_name:
             result, error = search_price(company_name, service_name)
             
@@ -483,7 +478,6 @@ if current_page == "🔍 البحث عن سعر":
                 with col_e:
                     st.markdown(f'<div class="result-card"><div class="result-title">🏢 تحمل الشركة</div><div class="result-value" style="color: #10B981;">{calculation["company_final"]:,.2f} <span style="font-size:16px;color:#64748B;">ج.م</span></div></div>', unsafe_allow_html=True)
 
-                # بطاقة الإجمالي النهائي
                 st.markdown(f'''
                     <div class="total-card">
                         <div class="total-title">💎 الإجمالي المطلوب دفعه</div>
@@ -491,137 +485,6 @@ if current_page == "🔍 البحث عن سعر":
                     </div>
                 ''', unsafe_allow_html=True)
 
-        # ===== عرض النتائج =====
-        if search_btn and service_name:
-            result, error = search_price(company_name, service_name)
-            
-            if error:
-                st.error(error)
-            else:
-                total_base = result['base_price'] * quantity
-                calculation = calculate_patient_share(total_base, patient_percent, result['discount_percent'])
-                total_final = calculation["patient_share"] + calculation["company_final"]
-                
-                st.markdown("<br><h3 style='text-align: center;'>📊 ملخص التسعير</h3>", unsafe_allow_html=True)
-                
-                col_a, col_b, col_c = st.columns(3)
-                with col_a:
-                    st.markdown(f'<div class="result-card"><div class="result-title">السعر الأساسي (للوحدة)</div><div class="result-value">{result["base_price"]:,.2f} <span style="font-size:16px;color:#64748B;">ج.م</span></div></div>', unsafe_allow_html=True)
-                with col_b:
-                    st.markdown(f'<div class="result-card"><div class="result-title">خصم الشركة</div><div class="result-value" style="color: #EF4444;">{result["discount_percent"]}%</div></div>', unsafe_allow_html=True)
-                with col_c:
-                    st.markdown(f'<div class="result-card"><div class="result-title">إجمالي قبل الخصم</div><div class="result-value">{total_base:,.2f} <span style="font-size:16px;color:#64748B;">ج.م</span></div></div>', unsafe_allow_html=True)
-
-                col_d, col_e = st.columns(2)
-                with col_d:
-                    st.markdown(f'<div class="result-card"><div class="result-title">🧑‍⚕️ تحمل المريض</div><div class="result-value" style="color: #F59E0B;">{calculation["patient_share"]:,.2f} <span style="font-size:16px;color:#64748B;">ج.م</span></div></div>', unsafe_allow_html=True)
-                with col_e:
-                    st.markdown(f'<div class="result-card"><div class="result-title">🏢 تحمل الشركة</div><div class="result-value" style="color: #10B981;">{calculation["company_final"]:,.2f} <span style="font-size:16px;color:#64748B;">ج.م</span></div></div>', unsafe_allow_html=True)
-
-                # بطاقة الإجمالي النهائي
-                st.markdown(f'''
-                    <div class="total-card">
-                        <div class="total-title">💎 الإجمالي المطلوب دفعه</div>
-                        <div class="total-value">{total_final:,.2f} ج.م</div>
-                    </div>
-                ''', unsafe_allow_html=True)
-    else:
-        # ===== صندوق البحث الأنيق =====
-        with st.container(border=True):
-            st.markdown("### ⚙️ اختر تفاصيل الخدمة")
-            col1, col2 = st.columns(2)
-            with col1:
-                company_name = st.selectbox("🏢 الشركة", companies_df['name'].tolist())
-            with col2:
-                service_name = st.selectbox("🔍 الخدمة", services_df['name'].tolist())
-            
-            col3, col4 = st.columns(2)
-            with col3:
-                quantity = st.number_input("🔢 الكمية", min_value=1, value=1, step=1)
-            with col4:
-                patient_percent = st.number_input("🧑‍⚕️ نسبة تحمل المريض (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.5)
-
-            st.write("") # مسافة
-            search_btn = st.button("🔍 بحث وعرض التفاصيل", type="primary", use_container_width=True)
-
-        # ===== عرض النتائج بشكل البطاقات =====
-        if search_btn and service_name:
-            result, error = search_price(company_name, service_name)
-            
-            if error:
-                flash_error(error)
-                st.rerun()
-            else:
-                total_base = result['base_price'] * quantity
-                calculation = calculate_patient_share(total_base, patient_percent, result['discount_percent'])
-                
-                st.markdown("---")
-                st.markdown("### 🧾 تفاصيل الفاتورة")
-                
-                # الصف الأول: معلومات الخدمة
-                col_a, col_b, col_c = st.columns(3)
-                with col_a:
-                    st.markdown(f'''
-                        <div class="metric-card">
-                            <div class="metric-title">سعر الوحدة</div>
-                            <div class="metric-value">{result["base_price"]:,.2f} ج.م</div>
-                        </div>
-                    ''', unsafe_allow_html=True)
-                with col_b:
-                    st.markdown(f'''
-                        <div class="metric-card">
-                            <div class="metric-title">الكمية</div>
-                            <div class="metric-value">{quantity}</div>
-                        </div>
-                    ''', unsafe_allow_html=True)
-                with col_c:
-                    st.markdown(f'''
-                        <div class="metric-card">
-                            <div class="metric-title">الإجمالي الأساسي</div>
-                            <div class="metric-value">{total_base:,.2f} ج.م</div>
-                        </div>
-                    ''', unsafe_allow_html=True)
-
-                # الصف الثاني: الخصومات والتحمل
-                col_d, col_e, col_f = st.columns(3)
-                with col_d:
-                    st.markdown(f'''
-                        <div class="metric-card">
-                            <div class="metric-title">خصم الشركة</div>
-                            <div class="metric-value" style="color: #d9534f;">{result["discount_percent"]}%</div>
-                        </div>
-                    ''', unsafe_allow_html=True)
-                with col_e:
-                    st.markdown(f'''
-                        <div class="metric-card">
-                            <div class="metric-title">تحمل المريض</div>
-                            <div class="metric-value" style="color: #f0ad4e;">{calculation["patient_share"]:,.2f} ج.م</div>
-                        </div>
-                    ''', unsafe_allow_html=True)
-                with col_f:
-                    st.markdown(f'''
-                        <div class="metric-card">
-                            <div class="metric-title">تحمل الشركة</div>
-                            <div class="metric-value" style="color: #5cb85c;">{calculation["company_final"]:,.2f} ج.م</div>
-                        </div>
-                    ''', unsafe_allow_html=True)
-
-                # بطاقة الإجمالي النهائي (مميزة)
-                total_final = calculation["patient_share"] + calculation["company_final"]
-                st.markdown(f'''
-                    <div class="total-card">
-                        <div class="total-title">💎 الإجمالي المطلوب دفعه</div>
-                        <div class="total-value">{total_final:,.2f} ج.م</div>
-                    </div>
-                ''', unsafe_allow_html=True)
-
-                # تفاصيل إضافية بشكل مخفي
-                with st.expander("📊 عرض تفاصيل الحساب الرياضي"):
-                    detail_data = {
-                        "البند": ["السعر الأساسي", "الكمية", "الإجمالي", "نسبة تحمل المريض", "تحمل المريض", "خصم الشركة", "تحمل الشركة"],
-                        "القيمة": [f"{result['base_price']:,.2f}", f"{quantity}", f"{total_base:,.2f}", f"{patient_percent}%", f"{calculation['patient_share']:,.2f}", f"{result['discount_percent']}%", f"{calculation['company_final']:,.2f}"]
-                    }
-                    st.dataframe(pd.DataFrame(detail_data), hide_index=True, use_container_width=True)
 
 # ==================== صفحة القسم الداخلي ====================
 elif current_page == "🏥 القسم الداخلي":
@@ -906,16 +769,13 @@ elif st.session_state.is_admin and current_page == "🏷️ إدارة الخص�
     if companies_df.empty or categories_df.empty:
         st.warning("⚠️ يجب أن يكون لديك شركات وتصنيفات مسجلة أولاً.")
     else:
-        # 1. اختيار الشركة (قائمة واحدة نظيفة)
         company_name = st.selectbox("🏢 اختر الشركة المراد تعديل خصوماتها:", companies_df['name'].tolist())
                 
         if company_name:
             company_id = int(companies_df[companies_df['name'] == company_name]['id'].values[0])
-            
             st.markdown("---")
             st.subheader(f"📋 خصومات شركة: {company_name}")
             
-            # 2. أدوات الخصم الشامل (Bulk Discount)
             st.info("💡 **حركة سريعة:** لو الشركة واخدة خصم شامل ماعدا كام ملحق، استخدم الأدوات دي عشان تملأ الجدول أوتوماتيك.")
             
             with st.expander("🪄 تطبيق خصم شامل مع استثناءات", expanded=True):
@@ -940,7 +800,6 @@ elif st.session_state.is_admin and current_page == "🏷️ إدارة الخص�
 
             st.markdown("---")
             
-            # 3. جلب البيانات وعرض الجدول
             conn = get_db_connection()
             cur = conn.cursor()
             
@@ -974,7 +833,6 @@ elif st.session_state.is_admin and current_page == "🏷️ إدارة الخص�
                 
             df_matrix = pd.DataFrame(matrix_data)
             
-            # 4. عرض الجدول
             edited_df = st.data_editor(
                 df_matrix,
                 use_container_width=True,
@@ -983,21 +841,13 @@ elif st.session_state.is_admin and current_page == "🏷️ إدارة الخص�
                     "ID": None,
                     "الملحق (التصنيف)": st.column_config.TextColumn("الملحق (التصنيف)", disabled=True, width="large"),
                     "عدد الخدمات": st.column_config.NumberColumn("عدد الخدمات", disabled=True, width="small"),
-                    "نسبة الخصم (%)": st.column_config.NumberColumn(
-                        "نسبة الخصم (%)",
-                        min_value=0.0,
-                        max_value=100.0,
-                        step=0.5,
-                        format="%.1f",
-                        width="medium"
-                    )
+                    "نسبة الخصم (%)": st.column_config.NumberColumn("نسبة الخصم (%)", min_value=0.0, max_value=100.0, step=0.5, format="%.1f", width="medium")
                 },
                 key=f"editor_{company_id}"
             )
             
             st.markdown("---")
             
-            # 5. الحفظ النهائي
             if st.button("💾 حفظ جميع الخصومات", type="primary", use_container_width=True):
                 conn = get_db_connection()
                 cur = conn.cursor()
@@ -1025,7 +875,6 @@ elif st.session_state.is_admin and current_page == "🏷️ إدارة الخص�
                     if 'discount_matrix_data' in st.session_state:
                         del st.session_state.discount_matrix_data
                         
-                    # إظهار إشعار عائم (Toast) + الرسالة الأساسية
                     st.toast(f"✅ تم الحفظ بنجاح لـ {company_name}", icon="🎉")
                     flash_success(f"✅ تم تحديث خصومات {company_name} بنجاح!")
                     st.rerun()
@@ -1242,7 +1091,6 @@ elif st.session_state.is_admin and current_page == "📤 رفع لائحة أس�
                         else: flash_warning("لم يتم رفع أي أسعار. تأكد من البيانات."); st.rerun()
             except Exception as e: flash_error(f"❌ خطأ في قراءة الملف: {e}"); st.rerun()
 
-        # عرض النتائج لو كانت محفوظة (مش بنعمل rerun هنا عشان نعرض النتيجة)
         if 'uploaded' in locals():
             st.subheader("📊 نتائج الرفع")
             col1, col2, col3 = st.columns(3)
@@ -1264,28 +1112,19 @@ elif st.session_state.is_admin and current_page == "📤 رفع لائحة أس�
 # ==================== تعديل الأسعار الفردية ====================
 elif st.session_state.is_admin and current_page == "✏️ تعديل الأسعار الفردية":
     st.header("✏️ تسعير خدمة لأكتر من شركة")
-    
+    st.markdown("**📌 التعليمات:**\n- اختر الخدمة\n- هتظهرلك كل الشركات مع خانة السعر\n- ادخل السعر لكل شركة عاوزها\n- اضغط '💾 حفظ جميع الأسعار' مرة واحدة")
     services_df = get_all_services()
-    if services_df.empty:
-        st.warning("⚠️ لا توجد خدمات مسجلة.")
+
+    if services_df.empty: st.warning("⚠️ لا توجد خدمات مسجلة.")
     else:
         service_name = st.selectbox("🔍 اختر الخدمة", services_df['name'].tolist())
         service_id = int(services_df[services_df['name'] == service_name]['id'].values[0])
 
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute('''
-            SELECT c.id, c.name, bp.price 
-            FROM companies c 
-            LEFT JOIN base_prices bp ON bp.company_id = c.id AND bp.service_id = %s 
-            ORDER BY c.name
-        ''', (service_id,))
-        companies_data = cur.fetchall()
-        cur.close()
-        conn.close()
+        conn = get_db_connection(); cur = conn.cursor()
+        cur.execute('SELECT c.id, c.name, bp.price FROM companies c LEFT JOIN base_prices bp ON bp.company_id = c.id AND bp.service_id = %s ORDER BY c.name', (service_id,))
+        companies_data = cur.fetchall(); cur.close(); conn.close()
 
-        if not companies_data:
-            st.warning("⚠️ لا توجد شركات مسجلة.")
+        if not companies_data: st.warning("⚠️ لا توجد شركات مسجلة.")
         else:
             # تجهيز البيانات
             df_companies = pd.DataFrame(companies_data, columns=['ID', 'الشركة', 'السعر'])
