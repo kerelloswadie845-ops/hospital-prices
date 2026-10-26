@@ -508,13 +508,14 @@ if current_page == "🔍 البحث عن سعر":
             
             table_rows = ""
             grand_total_base = 0
-            grand_total_discount = 0 # ضفنا دي
+            grand_total_discount = 0 
             grand_total_patient = 0
             grand_total_company = 0
 
             for item in st.session_state.invoice_cart:
-                # ضفنا مبلغ الخصم في الجدول ولونه أحمر
-table_rows += f"<tr><td>{item['service']}</td><td>{item['qty']}</td><td>{item['base_price']:,.2f}</td><td>{item['discount']}%</td><td style='color:#EF4444;'>{item.get('discount_amount', 0.0):,.2f}</td><td>{item['patient_share']:,.2f}</td><td>{item['company_share']:,.2f}</td></tr>"                
+                # السطور دي لازم تكون مزحلقة (واخدة مسافة) جوه الـ for
+                table_rows += f"<tr><td>{item['service']}</td><td>{item['qty']}</td><td>{item['base_price']:,.2f}</td><td>{item['discount']}%</td><td style='color:#EF4444;'>{item.get('discount_amount', 0.0):,.2f}</td><td>{item['patient_share']:,.2f}</td><td>{item['company_share']:,.2f}</td></tr>"
+                
                 grand_total_base += item['total_base']
                 grand_total_discount += item.get('discount_amount', 0.0)
                 grand_total_patient += item['patient_share']
