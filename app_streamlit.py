@@ -490,6 +490,41 @@ if current_page == "🔍 البحث عن سعر":
                         <div class="total-value">{total_final:,.2f} ج.م</div>
                     </div>
                 ''', unsafe_allow_html=True)
+
+        # ===== عرض النتائج =====
+        if search_btn and service_name:
+            result, error = search_price(company_name, service_name)
+            
+            if error:
+                st.error(error)
+            else:
+                total_base = result['base_price'] * quantity
+                calculation = calculate_patient_share(total_base, patient_percent, result['discount_percent'])
+                total_final = calculation["patient_share"] + calculation["company_final"]
+                
+                st.markdown("<br><h3 style='text-align: center;'>📊 ملخص التسعير</h3>", unsafe_allow_html=True)
+                
+                col_a, col_b, col_c = st.columns(3)
+                with col_a:
+                    st.markdown(f'<div class="result-card"><div class="result-title">السعر الأساسي (للوحدة)</div><div class="result-value">{result["base_price"]:,.2f} <span style="font-size:16px;color:#64748B;">ج.م</span></div></div>', unsafe_allow_html=True)
+                with col_b:
+                    st.markdown(f'<div class="result-card"><div class="result-title">خصم الشركة</div><div class="result-value" style="color: #EF4444;">{result["discount_percent"]}%</div></div>', unsafe_allow_html=True)
+                with col_c:
+                    st.markdown(f'<div class="result-card"><div class="result-title">إجمالي قبل الخصم</div><div class="result-value">{total_base:,.2f} <span style="font-size:16px;color:#64748B;">ج.م</span></div></div>', unsafe_allow_html=True)
+
+                col_d, col_e = st.columns(2)
+                with col_d:
+                    st.markdown(f'<div class="result-card"><div class="result-title">🧑‍⚕️ تحمل المريض</div><div class="result-value" style="color: #F59E0B;">{calculation["patient_share"]:,.2f} <span style="font-size:16px;color:#64748B;">ج.م</span></div></div>', unsafe_allow_html=True)
+                with col_e:
+                    st.markdown(f'<div class="result-card"><div class="result-title">🏢 تحمل الشركة</div><div class="result-value" style="color: #10B981;">{calculation["company_final"]:,.2f} <span style="font-size:16px;color:#64748B;">ج.م</span></div></div>', unsafe_allow_html=True)
+
+                # بطاقة الإجمالي النهائي
+                st.markdown(f'''
+                    <div class="total-card">
+                        <div class="total-title">💎 الإجمالي المطلوب دفعه</div>
+                        <div class="total-value">{total_final:,.2f} ج.م</div>
+                    </div>
+                ''', unsafe_allow_html=True)
     else:
         # ===== صندوق البحث الأنيق =====
         with st.container(border=True):
