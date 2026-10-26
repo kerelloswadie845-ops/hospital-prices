@@ -504,23 +504,15 @@ if current_page == "🔍 البحث عن سعر":
             # ===== عرض الفاتورة النهائية (Receipt) =====
             st.markdown("<br><br>", unsafe_allow_html=True)
             
-            # تجهيز جدول الخدمات في الفاتورة
+            # تجهيز جدول الخدمات في الفاتورة (تم حذف المسافات البادئة هنا)
             table_rows = ""
             grand_total_base = 0
             grand_total_patient = 0
             grand_total_company = 0
 
             for item in st.session_state.invoice_cart:
-                table_rows += f"""
-                <tr>
-                    <td>{item['service']}</td>
-                    <td>{item['qty']}</td>
-                    <td>{item['base_price']:,.2f}</td>
-                    <td>{item['discount']}%</td>
-                    <td>{item['patient_share']:,.2f}</td>
-                    <td>{item['company_share']:,.2f}</td>
-                </tr>
-                """
+                table_rows += f"<tr><td>{item['service']}</td><td>{item['qty']}</td><td>{item['base_price']:,.2f}</td><td>{item['discount']}%</td><td>{item['patient_share']:,.2f}</td><td>{item['company_share']:,.2f}</td></tr>"
+                
                 grand_total_base += item['total_base']
                 grand_total_patient += item['patient_share']
                 grand_total_company += item['company_share']
