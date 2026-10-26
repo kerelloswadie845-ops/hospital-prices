@@ -458,52 +458,48 @@ if current_page == "🔍 البحث عن سعر":
                 calculation = calculate_patient_share(total_base, patient_percent, result['discount_percent'])
                 total_final = calculation["patient_share"] + calculation["company_final"]
                 
-                # بناء شكل الفاتورة
-                st.markdown(f"""
-                <div class="receipt-container">
-                    <div class="receipt-header">
-                        <h2>فاتورة تسعير خدمة</h2>
-                        <p>{company_name}</p>
-                    </div>
-                    
-                    <div class="receipt-row">
-                        <span>الخدمة:</span>
-                        <span>{service_name}</span>
-                    </div>
-                    <div class="receipt-row">
-                        <span>سعر الوحدة:</span>
-                        <span>{result['base_price']:,.2f} ج.م</span>
-                    </div>
-                    <div class="receipt-row">
-                        <span>الكمية:</span>
-                        <span>{quantity}</span>
-                    </div>
-                    
-                    <div class="receipt-row total">
-                        <span>الإجمالي الأساسي:</span>
-                        <span>{total_base:,.2f} ج.م</span>
-                    </div>
-                    
-                    <div class="receipt-row discount">
-                        <span>خصم الشركة ({result['discount_percent']}%):</span>
-                        <span>مطبق</span>
-                    </div>
-                    
-                    <div class="receipt-row">
-                        <span>تحمل المريض ({patient_percent}%):</span>
-                        <span>{calculation['patient_share']:,.2f} ج.م</span>
-                    </div>
-                    <div class="receipt-row">
-                        <span>تحمل الشركة:</span>
-                        <span>{calculation['company_final']:,.2f} ج.م</span>
-                    </div>
-                    
-                    <div class="receipt-row final">
-                        <span>المطلوب دفعه:</span>
-                        <span>{total_final:,.2f} ج.م</span>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                # بناء شكل الفاتورة (بدون أي مسافات بادئة عشان يشتغل صح)
+                receipt_html = f"""<div class="receipt-container">
+<div class="receipt-header">
+<h2>فاتورة تسعير خدمة</h2>
+<p>{company_name}</p>
+</div>
+<div class="receipt-row">
+<span>الخدمة:</span>
+<span>{service_name}</span>
+</div>
+<div class="receipt-row">
+<span>سعر الوحدة:</span>
+<span>{result['base_price']:,.2f} ج.م</span>
+</div>
+<div class="receipt-row">
+<span>الكمية:</span>
+<span>{quantity}</span>
+</div>
+<div class="receipt-row total">
+<span>الإجمالي الأساسي:</span>
+<span>{total_base:,.2f} ج.م</span>
+</div>
+<div class="receipt-row discount">
+<span>خصم الشركة ({result['discount_percent']}%):</span>
+<span>مطبق</span>
+</div>
+<div class="receipt-row">
+<span>تحمل المريض ({patient_percent}%):</span>
+<span>{calculation['patient_share']:,.2f} ج.م</span>
+</div>
+<div class="receipt-row">
+<span>تحمل الشركة:</span>
+<span>{calculation['company_final']:,.2f} ج.م</span>
+</div>
+<div class="receipt-row final">
+<span>المطلوب دفعه:</span>
+<span>{total_final:,.2f} ج.م</span>
+</div>
+</div>"""
+                
+                # عرض الفاتورة
+                st.markdown(receipt_html, unsafe_allow_html=True)
 
 # ==================== صفحة القسم الداخلي ====================
 elif current_page == "🏥 القسم الداخلي":
