@@ -354,55 +354,79 @@ else:
 # ==================== صفحة البحث عن سعر ====================
 if current_page == "🔍 البحث عن سعر":
     
-    # تصميم CSS مخصص للبطاقات
+    # تصميم CSS مخصص
     st.markdown("""
     <style>
-    .metric-card {
+    /* تأثير للزرار */
+    div.stButton > button:first-child {
+        background-color: #2563EB;
+        color: white;
+        border-radius: 8px;
+        border: none;
+        padding: 10px 24px;
+        font-weight: bold;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2);
+    }
+    div.stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(37, 99, 235, 0.3);
+        color: white;
+    }
+
+    /* بطاقات النتائج */
+    .result-card {
         background-color: #ffffff;
         border-radius: 12px;
         padding: 20px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        border: 1px solid #e0e0e0;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.03);
+        border-top: 4px solid #2563EB;
         text-align: center;
         margin-bottom: 15px;
     }
-    .metric-title {
-        color: #6c757d;
+    .result-title {
+        color: #64748B;
         font-size: 14px;
         font-weight: 600;
-        margin-bottom: 8px;
+        margin-bottom: 10px;
     }
-    .metric-value {
-        color: #2b2b2b;
-        font-size: 24px;
-        font-weight: 700;
-        margin: 0;
+    .result-value {
+        color: #0F172A;
+        font-size: 26px;
+        font-weight: 800;
     }
+    
+    /* بطاقة الإجمالي */
     .total-card {
-        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-        border-radius: 12px;
-        padding: 25px;
+        background: linear-gradient(135deg, #0F172A 0%, #1E3A8A 100%);
+        border-radius: 16px;
+        padding: 30px;
         color: white;
         text-align: center;
-        box-shadow: 0 8px 15px rgba(30, 60, 114, 0.3);
-        margin-top: 20px;
-        margin-bottom: 20px;
+        box-shadow: 0 10px 25px rgba(15, 23, 42, 0.2);
+        margin-top: 25px;
     }
     .total-title {
         font-size: 16px;
         font-weight: 500;
+        color: #94A3B8;
         margin-bottom: 10px;
-        color: #e0e0e0;
+        letter-spacing: 1px;
     }
     .total-value {
-        font-size: 36px;
-        font-weight: 800;
+        font-size: 42px;
+        font-weight: 900;
         margin: 0;
+        background: -webkit-linear-gradient(#F8FAFC, #E2E8F0);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
     }
     </style>
     """, unsafe_allow_html=True)
 
     st.header("🔍 البحث عن سعر خدمة")
+    
+    # تنبيه بشكل شيك
     st.info("📌 **ملاحظة:** هذه الصفحة مخصصة لخدمات العيادات الخارجية (كشوفات، تحاليل، أشعة، إلخ).")
 
     companies_df = get_all_companies()
@@ -410,6 +434,62 @@ if current_page == "🔍 البحث عن سعر":
 
     if companies_df.empty or services_df.empty:
         st.warning("⚠️ تأكد من وجود شركات وخدمات مسجلة في النظام.")
+    else:
+        # ===== صندوق البحث =====
+        with st.container(border=True):
+            st.markdown("<h3 style='text-align: center; color: #334155; margin-bottom: 25px;'>⚙️ اختر تفاصيل الخدمة</h3>", unsafe_allow_html=True)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                company_name = st.selectbox("🏢 الشركة", companies_df['name'].tolist())
+            with col2:
+                service_name = st.selectbox("🔍 الخدمة", services_df['name'].tolist())
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            col3, col4 = st.columns(2)
+            with col3:
+                quantity = st.number_input("🔢 الكمية", min_value=1, value=1, step=1)
+            with col4:
+                patient_percent = st.number_input("🧑‍⚕️ نسبة تحمل المريض (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.5)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            search_btn = st.button("🔍 ابحث الآن", type="primary", use_container_width=True)
+
+        # ===== عرض النتائج =====
+        if search_btn and service_name:
+            result, error = search_price(company_name, service_name)
+            
+            if error:
+                st.error(error)
+            else:
+                total_base = result['base_price'] * quantity
+                calculation = calculate_patient_share(total_base, patient_percent, result['discount_percent'])
+                total_final = calculation["patient_share"] + calculation["company_final"]
+                
+                st.markdown("<br><h3 style='text-align: center;'>📊 ملخص التسعير</h3>", unsafe_allow_html=True)
+                
+                col_a, col_b, col_c = st.columns(3)
+                with col_a:
+                    st.markdown(f'<div class="result-card"><div class="result-title">السعر الأساسي (للوحدة)</div><div class="result-value">{result["base_price"]:,.2f} <span style="font-size:16px;color:#64748B;">ج.م</span></div></div>', unsafe_allow_html=True)
+                with col_b:
+                    st.markdown(f'<div class="result-card"><div class="result-title">خصم الشركة</div><div class="result-value" style="color: #EF4444;">{result["discount_percent"]}%</div></div>', unsafe_allow_html=True)
+                with col_c:
+                    st.markdown(f'<div class="result-card"><div class="result-title">إجمالي قبل الخصم</div><div class="result-value">{total_base:,.2f} <span style="font-size:16px;color:#64748B;">ج.م</span></div></div>', unsafe_allow_html=True)
+
+                col_d, col_e = st.columns(2)
+                with col_d:
+                    st.markdown(f'<div class="result-card"><div class="result-title">🧑‍⚕️ تحمل المريض</div><div class="result-value" style="color: #F59E0B;">{calculation["patient_share"]:,.2f} <span style="font-size:16px;color:#64748B;">ج.م</span></div></div>', unsafe_allow_html=True)
+                with col_e:
+                    st.markdown(f'<div class="result-card"><div class="result-title">🏢 تحمل الشركة</div><div class="result-value" style="color: #10B981;">{calculation["company_final"]:,.2f} <span style="font-size:16px;color:#64748B;">ج.م</span></div></div>', unsafe_allow_html=True)
+
+                # بطاقة الإجمالي النهائي
+                st.markdown(f'''
+                    <div class="total-card">
+                        <div class="total-title">💎 الإجمالي المطلوب دفعه</div>
+                        <div class="total-value">{total_final:,.2f} ج.م</div>
+                    </div>
+                ''', unsafe_allow_html=True)
     else:
         # ===== صندوق البحث الأنيق =====
         with st.container(border=True):
