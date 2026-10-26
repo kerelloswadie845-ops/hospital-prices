@@ -360,7 +360,6 @@ else:
 # ==================== صفحة البحث عن سعر (فاتورة متعددة) ====================
 if current_page == "🔍 البحث عن سعر":
     
-    # تصميم CSS مخصص
     st.markdown("""
     <style>
     .receipt-container {
@@ -368,7 +367,7 @@ if current_page == "🔍 البحث عن سعر":
         border-radius: 12px;
         padding: 30px;
         box-shadow: 0 10px 30px rgba(0,0,0,0.08);
-        max-width: 800px;
+        max-width: 900px;
         margin: 0 auto;
         direction: rtl;
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -396,7 +395,7 @@ if current_page == "🔍 البحث عن سعر":
         width: 100%;
         border-collapse: collapse;
         margin-bottom: 20px;
-        font-size: 15px;
+        font-size: 14px;
     }
     .receipt-table th {
         text-align: right;
@@ -409,7 +408,7 @@ if current_page == "🔍 البحث عن سعر":
         padding: 12px 10px;
         border-bottom: 1px dashed #E2E8F0;
         color: #334155;
-        text-align: right; /* السطر ده اللي هيظبط المحاذاة */
+        text-align: right; 
     }
     .receipt-row {
         display: flex;
@@ -441,7 +440,6 @@ if current_page == "🔍 البحث عن سعر":
 
     st.header("🔍 البحث عن سعر وإصدار فاتورة")
 
-    # تهيئة سلة الفاتورة
     if 'invoice_cart' not in st.session_state:
         st.session_state.invoice_cart = []
 
@@ -451,7 +449,6 @@ if current_page == "🔍 البحث عن سعر":
     if companies_df.empty or services_df.empty:
         st.warning("⚠️ تأكد من وجود شركات وخدمات مسجلة في النظام.")
     else:
-        # ===== شريط الإدخال العلوي =====
         with st.container(border=True):
             col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
             with col1:
@@ -473,7 +470,6 @@ if current_page == "🔍 البحث عن سعر":
                     total_base = result['base_price'] * quantity
                     calculation = calculate_patient_share(total_base, patient_percent, result['discount_percent'])
                     
-                    # إضافة الخدمة للسلة
                     st.session_state.invoice_cart.append({
                         'company': company_name,
                         'service': service_name,
@@ -481,13 +477,13 @@ if current_page == "🔍 البحث عن سعر":
                         'patient_pct': patient_percent,
                         'base_price': result['base_price'],
                         'discount': result['discount_percent'],
+                        'discount_amount': calculation['company_discount'], # ضفنا دي
                         'total_base': total_base,
                         'patient_share': calculation['patient_share'],
                         'company_share': calculation['company_final']
                     })
                     flash_success("✅ تم إضافة الخدمة للفاتورة"); st.rerun()
 
-        # ===== عرض سلة الفاتورة =====
         if st.session_state.invoice_cart:
             st.markdown("---")
             st.subheader("🛒 الخدمات المضافة")
@@ -508,19 +504,20 @@ if current_page == "🔍 البحث عن سعر":
                 st.session_state.invoice_cart = []
                 st.rerun()
 
-            # ===== عرض الفاتورة النهائية (Receipt) =====
             st.markdown("<br><br>", unsafe_allow_html=True)
             
-            # تجهيز جدول الخدمات في الفاتورة (تم حذف المسافات البادئة هنا)
             table_rows = ""
             grand_total_base = 0
+            grand_total_discount = 0 # ضفنا دي
             grand_total_patient = 0
             grand_total_company = 0
 
             for item in st.session_state.invoice_cart:
-                table_rows += f"<tr><td>{item['service']}</td><td>{item['qty']}</td><td>{item['base_price']:,.2f}</td><td>{item['discount']}%</td><td>{item['patient_share']:,.2f}</td><td>{item['company_share']:,.2f}</td></tr>"
+                # ضفنا مبلغ الخصم في الجدول ولونه أحمر
+                table_rows += f"<tr><td>{item['service']}</td><td>{item['qty']}</td><td>{item['base_price']:,.2f}</td><td>{item['discount']}%</td><td style='color:#EF4444;'>{item['discount_amount']:,.2f}</td><td>{item['patient_share']:,.2f}</td><td>{item['company_share']:,.2f}</td></tr>"
                 
                 grand_total_base += item['total_base']
+                grand_total_discount += item['discount_amount']
                 grand_total_patient += item['patient_share']
                 grand_total_company += item['company_share']
 
@@ -538,6 +535,7 @@ if current_page == "🔍 البحث عن سعر":
 <th>الكمية</th>
 <th>سعر الوحدة</th>
 <th>الخصم</th>
+<th>مبلغ الخصم</th>
 <th>تحمل المريض</th>
 <th>تحمل الشركة</th>
 </tr>
@@ -549,6 +547,10 @@ if current_page == "🔍 البحث عن سعر":
 <div class="receipt-row total">
 <span>الإجمالي الأساسي:</span>
 <span>{grand_total_base:,.2f} ج.م</span>
+</div>
+<div class="receipt-row" style="color: #EF4444;">
+<span>إجمالي مبلغ الخصم:</span>
+<span>{grand_total_discount:,.2f} ج.م</span>
 </div>
 <div class="receipt-row">
 <span>إجمالي تحمل المريض:</span>
