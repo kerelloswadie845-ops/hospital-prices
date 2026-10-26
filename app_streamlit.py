@@ -516,7 +516,7 @@ if current_page == "🔍 البحث عن سعر":
                 # ضفنا مبلغ الخصم في الجدول ولونه أحمر
 table_rows += f"<tr><td>{item['service']}</td><td>{item['qty']}</td><td>{item['base_price']:,.2f}</td><td>{item['discount']}%</td><td style='color:#EF4444;'>{item.get('discount_amount', 0.0):,.2f}</td><td>{item['patient_share']:,.2f}</td><td>{item['company_share']:,.2f}</td></tr>"                
                 grand_total_base += item['total_base']
-                grand_total_discount += item['discount_amount']
+                grand_total_discount += item.get('discount_amount', 0.0)
                 grand_total_patient += item['patient_share']
                 grand_total_company += item['company_share']
 
