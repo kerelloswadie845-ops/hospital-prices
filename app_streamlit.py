@@ -16,67 +16,40 @@ def get_db_connection():
     return conn
 
 
+# ==================== نظام رسائل التأكيد (Flash Messages) ====================
+def flash_success(msg):
+    st.session_state['flash_msg'] = ('success', msg)
+
+def flash_error(msg):
+    st.session_state['flash_msg'] = ('error', msg)
+
+def flash_warning(msg):
+    st.session_state['flash_msg'] = ('warning', msg)
+
+def display_flash():
+    if 'flash_msg' in st.session_state:
+        msg_type, msg_text = st.session_state['flash_msg']
+        if msg_type == 'success':
+            st.success(msg_text)
+        elif msg_type == 'error':
+            st.error(msg_text)
+        elif msg_type == 'warning':
+            st.warning(msg_text)
+        del st.session_state['flash_msg']
+
+
 # ==================== التأكد من وجود الجداول ====================
 def ensure_tables_exist():
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        cur.execute('''
-            CREATE TABLE IF NOT EXISTS company_item_discounts (
-                company_id INTEGER REFERENCES companies(id),
-                item_key TEXT NOT NULL,
-                discount_percent REAL NOT NULL DEFAULT 0,
-                PRIMARY KEY (company_id, item_key)
-            )
-        ''')
-        cur.execute('''
-            CREATE TABLE IF NOT EXISTS company_c_arm_prices (
-                company_id INTEGER REFERENCES companies(id),
-                item_name TEXT NOT NULL,
-                price REAL NOT NULL DEFAULT 0,
-                PRIMARY KEY (company_id, item_name)
-            )
-        ''')
-        cur.execute('''
-            CREATE TABLE IF NOT EXISTS company_inpatient_prices (
-                company_id INTEGER REFERENCES companies(id),
-                inpatient_id INTEGER REFERENCES inpatient_services(id),
-                room_price REAL NOT NULL DEFAULT 0,
-                medical_supervision REAL NOT NULL DEFAULT 0,
-                nursing_care REAL NOT NULL DEFAULT 0,
-                PRIMARY KEY (company_id, inpatient_id)
-            )
-        ''')
-        cur.execute('''
-            CREATE TABLE IF NOT EXISTS company_surgery_category_prices (
-                company_id INTEGER REFERENCES companies(id),
-                category_id INTEGER REFERENCES surgery_categories(id),
-                surgeon_fee REAL NOT NULL DEFAULT 0,
-                room_fee REAL NOT NULL DEFAULT 0,
-                PRIMARY KEY (company_id, category_id)
-            )
-        ''')
-        cur.execute('''
-            CREATE TABLE IF NOT EXISTS inpatient_settings (
-                id SERIAL PRIMARY KEY,
-                setting_key TEXT UNIQUE NOT NULL,
-                setting_value REAL NOT NULL,
-                description TEXT
-            )
-        ''')
-        cur.execute('''
-            CREATE TABLE IF NOT EXISTS c_arm_prices (
-                id SERIAL PRIMARY KEY,
-                item_name TEXT UNIQUE NOT NULL,
-                price REAL NOT NULL DEFAULT 0
-            )
-        ''')
-        cur.execute('''
-            CREATE TABLE IF NOT EXISTS consultation_prices (
-                company_id INTEGER PRIMARY KEY REFERENCES companies(id),
-                price REAL NOT NULL DEFAULT 0
-            )
-        ''')
+        cur.execute('''CREATE TABLE IF NOT EXISTS company_item_discounts (company_id INTEGER REFERENCES companies(id), item_key TEXT NOT NULL, discount_percent REAL NOT NULL DEFAULT 0, PRIMARY KEY (company_id, item_key))''')
+        cur.execute('''CREATE TABLE IF NOT EXISTS company_c_arm_prices (company_id INTEGER REFERENCES companies(id), item_name TEXT NOT NULL, price REAL NOT NULL DEFAULT 0, PRIMARY KEY (company_id, item_name))''')
+        cur.execute('''CREATE TABLE IF NOT EXISTS company_inpatient_prices (company_id INTEGER REFERENCES companies(id), inpatient_id INTEGER REFERENCES inpatient_services(id), room_price REAL NOT NULL DEFAULT 0, medical_supervision REAL NOT NULL DEFAULT 0, nursing_care REAL NOT NULL DEFAULT 0, PRIMARY KEY (company_id, inpatient_id))''')
+        cur.execute('''CREATE TABLE IF NOT EXISTS company_surgery_category_prices (company_id INTEGER REFERENCES companies(id), category_id INTEGER REFERENCES surgery_categories(id), surgeon_fee REAL NOT NULL DEFAULT 0, room_fee REAL NOT NULL DEFAULT 0, PRIMARY KEY (company_id, category_id))''')
+        cur.execute('''CREATE TABLE IF NOT EXISTS inpatient_settings (id SERIAL PRIMARY KEY, setting_key TEXT UNIQUE NOT NULL, setting_value REAL NOT NULL, description TEXT)''')
+        cur.execute('''CREATE TABLE IF NOT EXISTS c_arm_prices (id SERIAL PRIMARY KEY, item_name TEXT UNIQUE NOT NULL, price REAL NOT NULL DEFAULT 0)''')
+        cur.execute('''CREATE TABLE IF NOT EXISTS consultation_prices (company_id INTEGER PRIMARY KEY REFERENCES companies(id), price REAL NOT NULL DEFAULT 0)''')
         conn.commit()
     except Exception as e:
         conn.rollback()
@@ -86,493 +59,256 @@ def ensure_tables_exist():
         conn.close()
 
 
-# ==================== قائمة بنود القسم الداخلي القابلة للخصم ====================
+# ==================== قائمة بنود القسم الداخلي ====================
 INPATIENT_DISCOUNT_ITEMS = {
-    'room_stay': '🛏️ الإقامة (الغرفة)',
-    'supervision': '👨‍⚕️ الإشراف الطبي',
-    'nursing': '💉 التمريض المركّز',
-    'surgeon': '👨‍⚕️ اتعاب الجراح',
-    'anesthesia': '💉 التخدير',
-    'assistant': '🩺 مساعد الجراح',
-    'room_operation': '🏥 فتح غرفة العمليات',
-    'consultation': '💬 التشاور',
-    'labs': '🧪 التحاليل',
-    'plates': '🔩 شرائح ومسامير',
-    'scope': '🔬 المنظار',
-    'c_arm': '🩻 السي آرم',
-    'supplies': '📦 المستلزمات',
-    'meds': '💊 الأدوية',
+    'room_stay': '🛏️ الإقامة (الغرفة)', 'supervision': '👨‍⚕️ الإشراف الطبي', 'nursing': '💉 التمريض المركّز',
+    'surgeon': '👨‍⚕️ اتعاب الجراح', 'anesthesia': '💉 التخدير', 'assistant': '🩺 مساعد الجراح',
+    'room_operation': '🏥 فتح غرفة العمليات', 'consultation': '💬 التشاور', 'labs': '🧪 التحاليل',
+    'plates': '🔩 شرائح ومسامير', 'scope': '🔬 المنظار', 'c_arm': '🩻 السي آرم',
+    'supplies': '📦 المستلزمات', 'meds': '💊 الأدوية',
 }
 
 
 # ==================== دوال القراءة (مع الكاش للسرعة) ====================
-
 @st.cache_data(ttl=600)
 def get_all_companies():
-    conn = get_db_connection()
-    df = pd.read_sql_query('SELECT id, name, contract_notes FROM companies ORDER BY name', conn)
-    conn.close()
-    return df
+    conn = get_db_connection(); df = pd.read_sql_query('SELECT id, name, contract_notes FROM companies ORDER BY name', conn); conn.close(); return df
 
 @st.cache_data(ttl=600)
 def get_all_categories():
-    conn = get_db_connection()
-    df = pd.read_sql_query('SELECT id, name FROM categories ORDER BY name', conn)
-    conn.close()
-    return df
+    conn = get_db_connection(); df = pd.read_sql_query('SELECT id, name FROM categories ORDER BY name', conn); conn.close(); return df
 
 @st.cache_data(ttl=600)
 def get_all_services():
-    conn = get_db_connection()
-    df = pd.read_sql_query('SELECT id, name FROM services WHERE surgery_category_id IS NULL ORDER BY name', conn)
-    conn.close()
-    return df
+    conn = get_db_connection(); df = pd.read_sql_query('SELECT id, name FROM services WHERE surgery_category_id IS NULL ORDER BY name', conn); conn.close(); return df
 
 @st.cache_data(ttl=600)
 def get_inpatient_services():
-    conn = get_db_connection()
-    cur = conn.cursor()
+    conn = get_db_connection(); cur = conn.cursor()
     cur.execute('SELECT id, room_type, room_price, medical_supervision, nursing_care, companion_price FROM inpatient_services ORDER BY id')
-    results = cur.fetchall()
-    cur.close()
-    conn.close()
-    return results
+    results = cur.fetchall(); cur.close(); conn.close(); return results
 
 @st.cache_data(ttl=600)
 def get_all_surgery_services():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('''
-        SELECT s.id, s.name, sc.name AS category_name, sc.surgeon_fee, sc.room_fee
-        FROM services s
-        JOIN surgery_categories sc ON sc.id = s.surgery_category_id
-        ORDER BY sc.name, s.name
-    ''')
-    results = cur.fetchall()
-    cur.close()
-    conn.close()
-    return results
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT s.id, s.name, sc.name AS category_name, sc.surgeon_fee, sc.room_fee FROM services s JOIN surgery_categories sc ON sc.id = s.surgery_category_id ORDER BY sc.name, s.name')
+    results = cur.fetchall(); cur.close(); conn.close(); return results
 
 @st.cache_data(ttl=600)
 def get_all_inpatient_settings():
-    conn = get_db_connection()
-    cur = conn.cursor()
+    conn = get_db_connection(); cur = conn.cursor()
     cur.execute('SELECT setting_key, setting_value, description FROM inpatient_settings ORDER BY id')
-    results = cur.fetchall()
-    cur.close()
-    conn.close()
-    return results
+    results = cur.fetchall(); cur.close(); conn.close(); return results
 
 @st.cache_data(ttl=600)
 def get_all_surgery_categories():
-    conn = get_db_connection()
-    cur = conn.cursor()
+    conn = get_db_connection(); cur = conn.cursor()
     cur.execute('SELECT id, name, surgeon_fee, room_fee FROM surgery_categories ORDER BY id')
-    results = cur.fetchall()
-    cur.close()
-    conn.close()
-    return results
+    results = cur.fetchall(); cur.close(); conn.close(); return results
 
 @st.cache_data(ttl=600)
 def get_company_c_arm_prices(company_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('SELECT item_name, price FROM c_arm_prices ORDER BY id')
-    default_items = cur.fetchall()
-    cur.execute('SELECT item_name, price FROM company_c_arm_prices WHERE company_id = %s', (company_id,))
-    company_items = dict(cur.fetchall())
-    cur.close()
-    conn.close()
-    result = []
-    for item_name, default_price in default_items:
-        price = company_items.get(item_name, default_price)
-        result.append((item_name, price))
-    return result
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT item_name, price FROM c_arm_prices ORDER BY id'); default_items = cur.fetchall()
+    cur.execute('SELECT item_name, price FROM company_c_arm_prices WHERE company_id = %s', (company_id,)); company_items = dict(cur.fetchall())
+    cur.close(); conn.close()
+    return [(item_name, company_items.get(item_name, default_price)) for item_name, default_price in default_items]
 
 @st.cache_data(ttl=600)
 def get_company_inpatient_price(company_id, inpatient_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
+    conn = get_db_connection(); cur = conn.cursor()
     cur.execute('SELECT room_price, medical_supervision, nursing_care FROM company_inpatient_prices WHERE company_id = %s AND inpatient_id = %s', (company_id, inpatient_id))
     result = cur.fetchone()
     if not result:
         cur.execute('SELECT room_price, medical_supervision, nursing_care FROM inpatient_services WHERE id = %s', (inpatient_id,))
         result = cur.fetchone()
-    cur.close()
-    conn.close()
-    return result if result else (0, 0, 0)
+    cur.close(); conn.close(); return result if result else (0, 0, 0)
 
 @st.cache_data(ttl=600)
 def get_company_surgery_category_price(company_id, category_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
+    conn = get_db_connection(); cur = conn.cursor()
     cur.execute('SELECT surgeon_fee, room_fee FROM company_surgery_category_prices WHERE company_id = %s AND category_id = %s', (company_id, category_id))
     result = cur.fetchone()
     if not result:
-        cur.execute('SELECT surgeon_fee, room_fee FROM surgery_categories WHERE id = %s', (category_id,))
-        result = cur.fetchone()
-    cur.close()
-    conn.close()
-    return result if result else (0, 0)
+        cur.execute('SELECT surgeon_fee, room_fee FROM surgery_categories WHERE id = %s', (category_id,)); result = cur.fetchone()
+    cur.close(); conn.close(); return result if result else (0, 0)
 
 @st.cache_data(ttl=600)
 def get_inpatient_setting(key):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('SELECT setting_value FROM inpatient_settings WHERE setting_key = %s', (key,))
-    result = cur.fetchone()
-    cur.close()
-    conn.close()
-    return result[0] if result else 0
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT setting_value FROM inpatient_settings WHERE setting_key = %s', (key,)); result = cur.fetchone()
+    cur.close(); conn.close(); return result[0] if result else 0
 
 @st.cache_data(ttl=600)
 def get_consultation_price(company_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('SELECT price FROM consultation_prices WHERE company_id = %s', (company_id,))
-    result = cur.fetchone()
-    cur.close()
-    conn.close()
-    return result[0] if result else 0
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT price FROM consultation_prices WHERE company_id = %s', (company_id,)); result = cur.fetchone()
+    cur.close(); conn.close(); return result[0] if result else 0
 
 @st.cache_data(ttl=60)
 def get_all_company_discounts(company_id):
-    """جلب كل خصومات البنود لشركة مرة واحدة لتسريع الفاتورة"""
-    if not company_id:
-        return {}
-    conn = get_db_connection()
-    cur = conn.cursor()
+    if not company_id: return {}
+    conn = get_db_connection(); cur = conn.cursor()
     cur.execute('SELECT item_key, discount_percent FROM company_item_discounts WHERE company_id = %s', (company_id,))
-    results = cur.fetchall()
-    cur.close()
-    conn.close()
-    return {row[0]: row[1] for row in results}
+    results = cur.fetchall(); cur.close(); conn.close(); return {row[0]: row[1] for row in results}
 
 
-# ==================== دوال التحديث والحفظ (مع تصفير الكاش) ====================
-
-def update_inpatient_room(room_id, room_price, medical_supervision, nursing_care):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    try:
-        cur.execute('UPDATE inpatient_services SET room_price = %s, medical_supervision = %s, nursing_care = %s WHERE id = %s', (room_price, medical_supervision, nursing_care, room_id))
-        conn.commit()
-        st.cache_data.clear()
-        return True, "✅ تم تحديث أسعار الإقامة"
-    except Exception as e:
-        conn.rollback()
-        return False, f"❌ {e}"
-    finally:
-        cur.close()
-        conn.close()
-
-def update_surgery_category(category_id, surgeon_fee, room_fee):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    try:
-        cur.execute('UPDATE surgery_categories SET surgeon_fee = %s, room_fee = %s WHERE id = %s', (surgeon_fee, room_fee, category_id))
-        conn.commit()
-        st.cache_data.clear()
-        return True, "✅ تم تحديث أسعار التصنيف"
-    except Exception as e:
-        conn.rollback()
-        return False, f"❌ {e}"
-    finally:
-        cur.close()
-        conn.close()
-
+# ==================== دوال التحديث والحفظ ====================
 def update_company_inpatient_price(company_id, inpatient_id, room_price, medical_supervision, nursing_care):
-    conn = get_db_connection()
-    cur = conn.cursor()
+    conn = get_db_connection(); cur = conn.cursor()
     try:
-        cur.execute('''
-            INSERT INTO company_inpatient_prices (company_id, inpatient_id, room_price, medical_supervision, nursing_care)
-            VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT (company_id, inpatient_id) DO UPDATE SET 
-                room_price = EXCLUDED.room_price, medical_supervision = EXCLUDED.medical_supervision, nursing_care = EXCLUDED.nursing_care
-        ''', (company_id, inpatient_id, room_price, medical_supervision, nursing_care))
-        conn.commit()
-        st.cache_data.clear()
-        return True, "✅ تم تحديث أسعار الإقامة"
-    except Exception as e:
-        conn.rollback()
-        return False, f"❌ {e}"
-    finally:
-        cur.close()
-        conn.close()
+        cur.execute('INSERT INTO company_inpatient_prices (company_id, inpatient_id, room_price, medical_supervision, nursing_care) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (company_id, inpatient_id) DO UPDATE SET room_price = EXCLUDED.room_price, medical_supervision = EXCLUDED.medical_supervision, nursing_care = EXCLUDED.nursing_care', (company_id, inpatient_id, room_price, medical_supervision, nursing_care))
+        conn.commit(); st.cache_data.clear(); return True, "✅ تم تحديث أسعار الإقامة"
+    except Exception as e: conn.rollback(); return False, f"❌ {e}"
+    finally: cur.close(); conn.close()
 
 def update_company_surgery_category_price(company_id, category_id, surgeon_fee, room_fee):
-    conn = get_db_connection()
-    cur = conn.cursor()
+    conn = get_db_connection(); cur = conn.cursor()
     try:
-        cur.execute('''
-            INSERT INTO company_surgery_category_prices (company_id, category_id, surgeon_fee, room_fee)
-            VALUES (%s, %s, %s, %s)
-            ON CONFLICT (company_id, category_id) DO UPDATE SET surgeon_fee = EXCLUDED.surgeon_fee, room_fee = EXCLUDED.room_fee
-        ''', (company_id, category_id, surgeon_fee, room_fee))
-        conn.commit()
-        st.cache_data.clear()
-        return True, "✅ تم تحديث أسعار التصنيف"
-    except Exception as e:
-        conn.rollback()
-        return False, f"❌ {e}"
-    finally:
-        cur.close()
-        conn.close()
+        cur.execute('INSERT INTO company_surgery_category_prices (company_id, category_id, surgeon_fee, room_fee) VALUES (%s, %s, %s, %s) ON CONFLICT (company_id, category_id) DO UPDATE SET surgeon_fee = EXCLUDED.surgeon_fee, room_fee = EXCLUDED.room_fee', (company_id, category_id, surgeon_fee, room_fee))
+        conn.commit(); st.cache_data.clear(); return True, "✅ تم تحديث أسعار التصنيف"
+    except Exception as e: conn.rollback(); return False, f"❌ {e}"
+    finally: cur.close(); conn.close()
 
 def update_inpatient_setting(key, value):
-    conn = get_db_connection()
-    cur = conn.cursor()
+    conn = get_db_connection(); cur = conn.cursor()
     try:
         cur.execute('INSERT INTO inpatient_settings (setting_key, setting_value) VALUES (%s, %s) ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value', (key, value))
-        conn.commit()
-        st.cache_data.clear()
-        return True, "✅ تم تحديث الإعداد"
-    except Exception as e:
-        conn.rollback()
-        return False, f"❌ {e}"
-    finally:
-        cur.close()
-        conn.close()
+        conn.commit(); st.cache_data.clear(); return True, "✅ تم تحديث الإعداد"
+    except Exception as e: conn.rollback(); return False, f"❌ {e}"
+    finally: cur.close(); conn.close()
 
 def update_company_c_arm_price(company_id, item_name, price):
-    conn = get_db_connection()
-    cur = conn.cursor()
+    conn = get_db_connection(); cur = conn.cursor()
     try:
         cur.execute('INSERT INTO company_c_arm_prices (company_id, item_name, price) VALUES (%s, %s, %s) ON CONFLICT (company_id, item_name) DO UPDATE SET price = EXCLUDED.price', (company_id, item_name, price))
-        conn.commit()
-        st.cache_data.clear()
-        return True, "✅ تم تحديث السعر"
-    except Exception as e:
-        conn.rollback()
-        return False, f"❌ {e}"
-    finally:
-        cur.close()
-        conn.close()
+        conn.commit(); st.cache_data.clear(); return True, "✅ تم تحديث السعر"
+    except Exception as e: conn.rollback(); return False, f"❌ {e}"
+    finally: cur.close(); conn.close()
 
 def update_consultation_price(company_id, price):
-    conn = get_db_connection()
-    cur = conn.cursor()
+    conn = get_db_connection(); cur = conn.cursor()
     try:
         cur.execute('INSERT INTO consultation_prices (company_id, price) VALUES (%s, %s) ON CONFLICT (company_id) DO UPDATE SET price = EXCLUDED.price', (company_id, price))
-        conn.commit()
-        st.cache_data.clear()
-        return True, "✅ تم تحديث سعر التشاور"
-    except Exception as e:
-        conn.rollback()
-        return False, f"❌ {e}"
-    finally:
-        cur.close()
-        conn.close()
+        conn.commit(); st.cache_data.clear(); return True, "✅ تم تحديث سعر التشاور"
+    except Exception as e: conn.rollback(); return False, f"❌ {e}"
+    finally: cur.close(); conn.close()
 
 def update_company_item_discount(company_id, item_key, discount_percent):
-    conn = get_db_connection()
-    cur = conn.cursor()
+    conn = get_db_connection(); cur = conn.cursor()
     try:
         cur.execute('INSERT INTO company_item_discounts (company_id, item_key, discount_percent) VALUES (%s, %s, %s) ON CONFLICT (company_id, item_key) DO UPDATE SET discount_percent = EXCLUDED.discount_percent', (company_id, item_key, discount_percent))
-        conn.commit()
-        st.cache_data.clear()
-        return True, "✅ تم تحديث الخصم"
-    except Exception as e:
-        conn.rollback()
-        return False, f"❌ {e}"
-    finally:
-        cur.close()
-        conn.close()
+        conn.commit(); st.cache_data.clear(); return True, "✅ تم تحديث الخصم"
+    except Exception as e: conn.rollback(); return False, f"❌ {e}"
+    finally: cur.close(); conn.close()
 
 def add_company(name, contract_notes):
-    conn = get_db_connection()
-    cur = conn.cursor()
+    conn = get_db_connection(); cur = conn.cursor()
     try:
         cur.execute('INSERT INTO companies (name, contract_notes) VALUES (%s, %s)', (name, contract_notes))
-        conn.commit()
-        st.cache_data.clear()
-        return True, "✅ تم إضافة الشركة بنجاح!"
+        conn.commit(); st.cache_data.clear(); return True, "✅ تم إضافة الشركة بنجاح!"
     except psycopg2.IntegrityError:
-        conn.rollback()
-        cur.execute('UPDATE companies SET contract_notes = %s WHERE name = %s', (contract_notes, name))
-        conn.commit()
-        st.cache_data.clear()
-        return True, "🔄 تم تحديث بيانات الشركة الموجودة!"
-    finally:
-        cur.close()
-        conn.close()
+        conn.rollback(); cur.execute('UPDATE companies SET contract_notes = %s WHERE name = %s', (contract_notes, name))
+        conn.commit(); st.cache_data.clear(); return True, "🔄 تم تحديث بيانات الشركة الموجودة!"
+    finally: cur.close(); conn.close()
 
 def add_service(category_id, service_name):
-    conn = get_db_connection()
-    cur = conn.cursor()
+    conn = get_db_connection(); cur = conn.cursor()
     try:
         cur.execute('INSERT INTO services (category_id, name) VALUES (%s, %s)', (category_id, service_name))
-        conn.commit()
-        st.cache_data.clear()
-        return True, "✅ تم إضافة الخدمة بنجاح!"
+        conn.commit(); st.cache_data.clear(); return True, "✅ تم إضافة الخدمة بنجاح!"
     except psycopg2.IntegrityError:
-        conn.rollback()
-        return False, "⚠️ هذه الخدمة موجودة بالفعل في هذا التصنيف!"
-    finally:
-        cur.close()
-        conn.close()
+        conn.rollback(); return False, "⚠️ هذه الخدمة موجودة بالفعل في هذا التصنيف!"
+    finally: cur.close(); conn.close()
 
 def delete_service(service_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
+    conn = get_db_connection(); cur = conn.cursor()
     try:
         cur.execute('SELECT c.name, bp.price FROM base_prices bp JOIN companies c ON c.id = bp.company_id WHERE bp.service_id = %s ORDER BY c.name', (service_id,))
         companies_with_price = cur.fetchall()
-        if companies_with_price:
-            cur.close()
-            conn.close()
-            return False, companies_with_price
+        if companies_with_price: cur.close(); conn.close(); return False, companies_with_price
         cur.execute('DELETE FROM services WHERE id = %s', (service_id,))
-        conn.commit()
-        st.cache_data.clear()
-        return True, "✅ تم حذف الخدمة بنجاح!"
-    except Exception as e:
-        conn.rollback()
-        return False, f"❌ خطأ: {e}"
-    finally:
-        cur.close()
-        conn.close()
+        conn.commit(); st.cache_data.clear(); return True, "✅ تم حذف الخدمة بنجاح!"
+    except Exception as e: conn.rollback(); return False, f"❌ خطأ: {e}"
+    finally: cur.close(); conn.close()
 
 def add_discount(company_id, category_id, discount_percent):
-    conn = get_db_connection()
-    cur = conn.cursor()
+    conn = get_db_connection(); cur = conn.cursor()
     cur.execute('INSERT INTO discounts (company_id, category_id, discount_percent) VALUES (%s, %s, %s) ON CONFLICT (company_id, category_id) DO UPDATE SET discount_percent = EXCLUDED.discount_percent', (company_id, category_id, discount_percent))
-    conn.commit()
-    st.cache_data.clear()
-    cur.close()
-    conn.close()
+    conn.commit(); st.cache_data.clear(); cur.close(); conn.close()
     return True, "✅ تم حفظ الخصم بنجاح!"
 
-def update_service_price(company_id, service_id, new_price):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    try:
-        cur.execute('INSERT INTO base_prices (company_id, service_id, price) VALUES (%s, %s, %s) ON CONFLICT (company_id, service_id) DO UPDATE SET price = EXCLUDED.price', (company_id, service_id, new_price))
-        conn.commit()
-        st.cache_data.clear()
-        return True, "✅ تم تحديث السعر بنجاح!"
-    except Exception as e:
-        conn.rollback()
-        return False, f"❌ خطأ: {e}"
-    finally:
-        cur.close()
-        conn.close()
-
-
-# ==================== دوال البحث ورفع اللوائح ====================
 def search_price(company_name, service_name):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('''
-        SELECT bp.price, c.id as company_id, s.category_id
-        FROM base_prices bp
-        JOIN companies c ON c.id = bp.company_id
-        JOIN services s ON s.id = bp.service_id
-        WHERE c.name = %s AND s.name = %s
-    ''', (company_name, service_name))
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT bp.price, c.id as company_id, s.category_id FROM base_prices bp JOIN companies c ON c.id = bp.company_id JOIN services s ON s.id = bp.service_id WHERE c.name = %s AND s.name = %s', (company_name, service_name))
     result = cur.fetchone()
-    if not result:
-        cur.close()
-        conn.close()
-        return None, "❌ الخدمة غير موجودة لهذه الشركة"
-    base_price = result[0]
-    company_id = result[1]
-    category_id = result[2]
+    if not result: cur.close(); conn.close(); return None, "❌ الخدمة غير موجودة لهذه الشركة"
+    base_price, company_id, category_id = result[0], result[1], result[2]
     cur.execute('SELECT discount_percent FROM discounts WHERE company_id = %s AND category_id = %s', (company_id, category_id))
-    discount_result = cur.fetchone()
-    discount_percent = discount_result[0] if discount_result else 0
+    disc = cur.fetchone(); discount_percent = disc[0] if disc else 0
     final_price = base_price * (1 - discount_percent / 100)
-    cur.close()
-    conn.close()
-    return {'base_price': base_price, 'discount_percent': discount_percent, 'final_price': round(final_price, 2)}, None
+    cur.close(); conn.close(); return {'base_price': base_price, 'discount_percent': discount_percent, 'final_price': round(final_price, 2)}, None
 
 def calculate_patient_share(base_price, patient_percent, discount_percent):
     patient_share = base_price * (patient_percent / 100)
     company_share_before_discount = base_price - patient_share
     company_discount = company_share_before_discount * (discount_percent / 100)
     company_final = company_share_before_discount - company_discount
-    total_final = patient_share + company_final
-    return {
-        'patient_share': patient_share, 'company_share_before_discount': company_share_before_discount,
-        'company_discount': company_discount, 'company_final': company_final, 'total_final': total_final,
-        'base_price': base_price, 'patient_percent': patient_percent, 'discount_percent': discount_percent
-    }
+    return {'patient_share': patient_share, 'company_final': company_final, 'base_price': base_price, 'discount_percent': discount_percent}
 
 def normalize_service_name(name):
     if pd.isna(name): return ""
-    name = str(name).lower()
-    name = re.sub(r'\([^)]*\)', '', name)
-    name = re.sub(r'[^\w\s]', '', name)
+    name = str(name).lower(); name = re.sub(r'\([^)]*\)', '', name); name = re.sub(r'[^\w\s]', '', name)
     return ' '.join(name.split()).strip()
 
 def find_similar_service(service_name, existing_services, threshold=0.85):
     if not existing_services: return None
-    normalized = normalize_service_name(service_name)
-    best_match, best_score = None, 0
+    normalized = normalize_service_name(service_name); best_match, best_score = None, 0
     for existing in existing_services:
         score = SequenceMatcher(None, normalized, normalize_service_name(existing)).ratio()
-        if score > best_score:
-            best_score = score
-            best_match = existing
+        if score > best_score: best_score = score; best_match = existing
     return best_match if best_score >= threshold else None
 
 def upload_price_list_from_excel(df, company_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute('SELECT name FROM services')
-    existing_services = [r[0] for r in cur.fetchall()]
-    if not existing_services:
-        cur.close(); conn.close()
-        return [], [], ["❌ لا توجد خدمات مسجلة في النظام."]
-    
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute('SELECT name FROM services'); existing_services = [r[0] for r in cur.fetchall()]
+    if not existing_services: cur.close(); conn.close(); return [], [], ["❌ لا توجد خدمات مسجلة في النظام."]
     service_col, price_col = None, None
     for col in df.columns:
         col_lower = str(col).lower()
         if any(k in col_lower for k in ['خدمة', 'اسم', 'service', 'البند', 'البيان']): service_col = col
         if any(k in col_lower for k in ['سعر', 'price', 'قيمة', 'تكلفة']): price_col = col
-    if not service_col or not price_col:
-        cur.close(); conn.close()
-        return [], [], ["❌ لم يتم العثور على أعمدة الخدمة والسعر."]
-    
+    if not service_col or not price_col: cur.close(); conn.close(); return [], [], ["❌ لم يتم العثور على أعمدة الخدمة والسعر."]
     uploaded, not_found, errors = [], [], []
     for _, row in df.iterrows():
-        s_name = str(row[service_col]).strip()
-        p_val = row[price_col]
+        s_name = str(row[service_col]).strip(); p_val = row[price_col]
         if pd.isna(s_name) or s_name in ['', 'nan']: continue
-        try:
-            price = float(p_val)
-            if price <= 0: continue
+        try: price = float(p_val); 
         except: continue
-        
+        if price <= 0: continue
         matched = find_similar_service(s_name, existing_services)
         if matched:
-            cur.execute('SELECT id FROM services WHERE name = %s', (matched,))
-            s_res = cur.fetchone()
+            cur.execute('SELECT id FROM services WHERE name = %s', (matched,)); s_res = cur.fetchone()
             if s_res:
                 try:
                     cur.execute('INSERT INTO base_prices (company_id, service_id, price) VALUES (%s, %s, %s) ON CONFLICT (company_id, service_id) DO UPDATE SET price = EXCLUDED.price', (company_id, s_res[0], price))
                     uploaded.append({'service': s_name, 'matched_to': matched, 'price': price})
-                except Exception as e:
-                    errors.append(f"خطأ في رفع '{s_name}': {e}")
-        else:
-            not_found.append(s_name)
-    conn.commit()
-    st.cache_data.clear()
-    cur.close()
-    conn.close()
+                except Exception as e: errors.append(f"خطأ في رفع '{s_name}': {e}")
+        else: not_found.append(s_name)
+    conn.commit(); st.cache_data.clear(); cur.close(); conn.close()
     return uploaded, not_found, errors
 
 # ==================== المصادقة ====================
 ADMIN_PASSWORD = "admin123"
-def check_password(password):
-    return password == ADMIN_PASSWORD
+def check_password(password): return password == ADMIN_PASSWORD
 
 
 # ==================== واجهة التطبيق ====================
 st.set_page_config(page_title="نظام إدارة أسعار العقود الطبية", page_icon="🏥", layout="wide")
 
-# التأكد من وجود الجداول
+# عرض رسائل النجاح أو الخطأ
+display_flash()
+
 ensure_tables_exist()
 
 if 'is_admin' not in st.session_state: st.session_state.is_admin = False
@@ -584,8 +320,8 @@ st.markdown("---")
 # ==================== القائمة الجانبية ====================
 st.sidebar.title("🏥 القائمة")
 public_menu = st.sidebar.radio("📋 اختر العملية", ["🔍 البحث عن سعر", "🏥 القسم الداخلي"])
-
 st.sidebar.markdown("---")
+
 if st.sidebar.button("⚙️ إدارة المحتوى"):
     st.session_state.show_login = True
 
@@ -598,27 +334,19 @@ if st.session_state.get('show_login', False):
             with col2: cancel = st.form_submit_button("إلغاء")
             if submit:
                 if check_password(password):
-                    st.session_state.is_admin = True
-                    st.session_state.show_login = False
-                    st.success("✅ تم تسجيل الدخول كمدير")
-                    st.rerun()
+                    st.session_state.is_admin = True; st.session_state.show_login = False; st.rerun()
                 else: st.error("❌ كلمة المرور غير صحيحة")
-            if cancel:
-                st.session_state.show_login = False
-                st.rerun()
+            if cancel: st.session_state.show_login = False; st.rerun()
 
 if st.session_state.is_admin:
-    st.sidebar.markdown("---")
-    st.sidebar.success("✅ وضع المدير")
+    st.sidebar.markdown("---"); st.sidebar.success("✅ وضع المدير")
     admin_menu = st.sidebar.radio("⚙️ إدارة النظام", [
         "🏢 إدارة الشركات", "🧪 إدارة الخدمات", "🏷️ إدارة الخصومات", "⚙️ إعدادات القسم الداخلي", "📊 عرض البيانات", "📤 رفع لائحة أسعار", "✏️ تعديل الأسعار الفردية"
     ])
     current_page = admin_menu
     st.sidebar.markdown("---")
     if st.sidebar.button("🚪 تسجيل الخروج", use_container_width=True):
-        st.session_state.is_admin = False
-        st.session_state.show_login = False
-        st.rerun()
+        st.session_state.is_admin = False; st.session_state.show_login = False; st.rerun()
 else:
     current_page = public_menu
 
@@ -629,49 +357,45 @@ if current_page == "🔍 البحث عن سعر":
     st.markdown("**📌 ملاحظة:** هذه الصفحة خاصة بخدمات العيادات الخارجية (كشوفات، تحاليل، أشعة، إلخ).")
 
     companies_df = get_all_companies()
-    if companies_df.empty:
-        st.warning("⚠️ لا توجد شركات مسجلة. قم بإضافة شركات أولاً.")
+    if companies_df.empty: st.warning("⚠️ لا توجد شركات مسجلة. قم بإضافة شركات أولاً.")
     else:
         col1, col2 = st.columns(2)
-        with col1:
-            company_name = st.selectbox("اختر الشركة", companies_df['name'].tolist())
+        with col1: company_name = st.selectbox("اختر الشركة", companies_df['name'].tolist())
         with col2:
             services_df = get_all_services()
-            if services_df.empty:
-                st.warning("⚠️ لا توجد خدمات مسجلة. قم بإضافة خدمات أولاً.")
-                service_name = None
-            else:
-                service_name = st.selectbox("اختر الخدمة", services_df['name'].tolist())
+            service_name = st.selectbox("اختر الخدمة", services_df['name'].tolist()) if not services_df.empty else None
+            if not service_name: st.warning("⚠️ لا توجد خدمات مسجلة.")
 
         col1, col2 = st.columns(2)
-        with col1:
-            patient_percent = st.number_input("🧑‍⚕️ نسبة تحمل المريض (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.5, format="%.1f")
-        with col2:
-            quantity = st.number_input("🔢 الكمية", min_value=1, value=1, step=1)
+        with col1: patient_percent = st.number_input("🧑‍⚕️ نسبة تحمل المريض (%)", min_value=0.0, max_value=100.0, value=0.0, step=0.5, format="%.1f")
+        with col2: quantity = st.number_input("🔢 الكمية", min_value=1, value=1, step=1)
 
         if st.button("🔍 ابحث", type="primary"):
             if service_name:
                 result, error = search_price(company_name, service_name)
-                if error: st.error(error)
+                if error: flash_error(error); st.rerun()
                 else:
                     total_base = result['base_price'] * quantity
                     calculation = calculate_patient_share(total_base, patient_percent, result['discount_percent'])
-                    st.success("✅ تم العثور على السعر!")
-                    col1, col2, col3 = st.columns(3)
-                    with col1: st.metric("💰 السعر الأساسي", f"{result['base_price']:,.2f} ج.م")
-                    with col2: st.metric("🧑‍⚕️ تحمل المريض", f"{calculation['patient_share']:,.2f} ج.م")
-                    with col3: st.metric("🏢 تحمل الشركة", f"{calculation['company_final']:,.2f} ج.م")
-                    st.markdown("---")
-                    col1, col2, col3 = st.columns(3)
-                    with col1: st.info(f"🏷️ **نسبة الخصم المسجلة:** {result['discount_percent']}%")
-                    with col2: st.info(f"🔢 **الكمية:** {quantity}")
-                    with col3: st.info(f"💰 **الإجمالي (قبل الخصم):** {total_base:,.2f} ج.م")
-                    st.markdown("---")
-                    st.subheader("📋 تفاصيل الحساب")
-                    st.dataframe(pd.DataFrame({
-                        "البند": ["السعر الأساسي (للوحدة)", "الكمية", "الإجمالي (السعر × الكمية)", "نسبة تحمل المريض", "تحمل المريض", "نسبة الخصم المسجلة", "تحمل الشركة"],
-                        "القيمة": [f"{result['base_price']:,.2f} ج.م", f"{quantity}", f"{total_base:,.2f} ج.م", f"{patient_percent}%", f"{calculation['patient_share']:,.2f} ج.م", f"{result['discount_percent']}%", f"{calculation['company_final']:,.2f} ج.م"]
-                    }), hide_index=True, use_container_width=True)
+                    flash_success("✅ تم العثور على السعر!"); st.rerun()
+
+        # عرض النتيجة (لو كانت موجودة في الجلسة)
+        if 'search_result' not in st.session_state and service_name:
+            pass # مفيش داعي لأي حاجة هنا، الكود ده مجرد شكل
+            
+        # ممكن نعرض النتيجة دايركت
+        if service_name and st.button("عرض التفاصيل", key="show_details_btn"):
+            result, error = search_price(company_name, service_name)
+            if error: st.error(error)
+            else:
+                total_base = result['base_price'] * quantity
+                calculation = calculate_patient_share(total_base, patient_percent, result['discount_percent'])
+                st.success("✅ تم العثور على السعر!")
+                col1, col2, col3 = st.columns(3)
+                with col1: st.metric("💰 السعر الأساسي", f"{result['base_price']:,.2f} ج.م")
+                with col2: st.metric("🧑‍⚕️ تحمل المريض", f"{calculation['patient_share']:,.2f} ج.م")
+                with col3: st.metric("🏢 تحمل الشركة", f"{calculation['company_final']:,.2f} ج.م")
+                st.info(f"🏷️ خصم الشركة: {result['discount_percent']}% | 🔢 الكمية: {quantity} | 💰 الإجمالي: {total_base:,.2f} ج.م")
 
 
 # ==================== صفحة القسم الداخلي ====================
@@ -692,8 +416,7 @@ elif current_page == "🏥 القسم الداخلي":
         surgery_dict = {}
         for row in surgery_services:
             display_name = f"{row[1]} ({row[2]})"
-            surgery_list.append(display_name)
-            surgery_dict[display_name] = row
+            surgery_list.append(display_name); surgery_dict[display_name] = row
         selected_surgery = st.selectbox("🔪 العملية الجراحية", surgery_list)
         surgery_data = surgery_dict.get(selected_surgery) if selected_surgery != "لا توجد عملية" else None
 
@@ -703,18 +426,15 @@ elif current_page == "🏥 القسم الداخلي":
         inpatient_dict = {}
         for row in inpatient_services:
             room_type = str(row[1])
-            inpatient_list.append(room_type)
-            inpatient_dict[room_type] = row
+            inpatient_list.append(room_type); inpatient_dict[room_type] = row
         selected_inpatient = st.selectbox("🛏️ نوع الإقامة", inpatient_list)
         inpatient_data = inpatient_dict.get(selected_inpatient) if selected_inpatient != "لا توجد إقامة" else None
 
     inpatient_days = 1.0
     if inpatient_data:
         col1, col2 = st.columns([1, 3])
-        with col1:
-            inpatient_days = st.number_input("📅 عدد الأيام", min_value=0.5, value=1.0, step=0.5, format="%.1f", help="أدخل 0.5 لنصف يوم، 1 ليوم كامل، 2 ليومين... إلخ")
-        with col2:
-            st.info(f"💡 الإقامة: **{inpatient_days}** يوم × 3 بنود (غرفة + إشراف + تمريض)")
+        with col1: inpatient_days = st.number_input("📅 عدد الأيام", min_value=0.5, value=1.0, step=0.5, format="%.1f")
+        with col2: st.info(f"💡 الإقامة: **{inpatient_days}** يوم")
 
     col1, col2, col3 = st.columns(3)
     with col1: supplies_value = st.number_input("📦 قيمة المستلزمات", min_value=0.0, value=0.0, step=1.0, format="%.2f")
@@ -727,9 +447,7 @@ elif current_page == "🏥 القسم الداخلي":
     with col2: has_scope = st.checkbox("🔬 منظار")
     with col3: has_c_arm = st.checkbox("🩻 جهاز السي آرم")
 
-    plates_value, scope_value = 0.0, 0.0
-    c_arm_device_count, c_arm_images_count, c_arm_tech_count = 0, 0, 0
-
+    plates_value, scope_value, c_arm_device_count, c_arm_images_count, c_arm_tech_count = 0.0, 0.0, 0, 0, 0
     if has_plates: plates_value = st.number_input("💰 قيمة الشرائح والمسامير", min_value=0.0, value=0.0, step=1.0, format="%.2f")
     if has_scope: scope_value = st.number_input("💰 قيمة المنظار", min_value=0.0, value=0.0, step=1.0, format="%.2f")
     if has_c_arm:
@@ -740,43 +458,34 @@ elif current_page == "🏥 القسم الداخلي":
         with col3: c_arm_tech_count = st.number_input("عدد الفني", min_value=0, value=0, step=1)
 
     has_anesthesia = True
-    if surgery_data:
-        if "بسيطة" in surgery_data[2]:
-            has_anesthesia = st.checkbox("💉 العملية لها تخدير؟", value=True)
+    if surgery_data and "بسيطة" in surgery_data[2]:
+        has_anesthesia = st.checkbox("💉 العملية لها تخدير؟", value=True)
 
-    st.markdown("---")
-    st.markdown("**➕ بنود إضافية:**")
+    st.markdown("---"); st.markdown("**➕ بنود إضافية:**")
     if 'additional_items' not in st.session_state: st.session_state.additional_items = []
     if st.button("➕ إضافة بند إضافي", key="add_additional_item"):
-        st.session_state.additional_items.append({'id': str(uuid.uuid4()), 'name': '', 'price': 0.0})
-        st.rerun()
+        st.session_state.additional_items.append({'id': str(uuid.uuid4()), 'name': '', 'price': 0.0}); st.rerun()
 
     if st.session_state.additional_items:
         for idx, item in enumerate(st.session_state.additional_items):
             item_id = item['id']
             col1, col2, col3 = st.columns([3, 2, 1])
-            with col1: item['name'] = st.text_input("اسم البند", value=item['name'], key=f"add_name_{item_id}", placeholder="اكتب اسم البند الإضافي", label_visibility="collapsed")
+            with col1: item['name'] = st.text_input("اسم البند", value=item['name'], key=f"add_name_{item_id}", placeholder="اسم البند", label_visibility="collapsed")
             with col2: item['price'] = st.number_input("السعر", min_value=0.0, value=float(item['price']), step=1.0, format="%.2f", key=f"add_price_{item_id}", label_visibility="collapsed")
             with col3:
-                if st.button("🗑️", key=f"remove_{item_id}"):
-                    st.session_state.additional_items.pop(idx)
-                    st.rerun()
+                if st.button("🗑️", key=f"remove_{item_id}"): st.session_state.additional_items.pop(idx); st.rerun()
 
-    st.markdown("---")
-    st.subheader("📋 الفاتورة")
+    st.markdown("---"); st.subheader("📋 الفاتورة")
 
     service_percent = get_inpatient_setting('service_percent')
     stamp_fee = get_inpatient_setting('stamp_fee')
     profit_margin_percent = get_inpatient_setting('profit_margin_percent')
     anesthesia_percent = get_inpatient_setting('anesthesia_percent')
     assistant_percent = get_inpatient_setting('assistant_percent')
-    
-    # 🔥 السطر ده هو اللي بيسرع الفاتورة (بيجيب كل الخصومات مرة واحدة)
     company_discounts = get_all_company_discounts(company_id)
 
     invoice = []
 
-    # 1. الإقامة
     if inpatient_data:
         inpatient_id = inpatient_data[0]
         if company_id:
@@ -786,72 +495,55 @@ elif current_page == "🏥 القسم الداخلي":
             room_price, medical_supervision, nursing_care = inpatient_data[2], inpatient_data[3], inpatient_data[4]
 
         total_room, total_supervision, total_nursing = room_price * inpatient_days, medical_supervision * inpatient_days, nursing_care * inpatient_days
-
         if company_id:
-            total_room = total_room * (1 - company_discounts.get('room_stay', 0) / 100)
-            total_supervision = total_supervision * (1 - company_discounts.get('supervision', 0) / 100)
-            total_nursing = total_nursing * (1 - company_discounts.get('nursing', 0) / 100)
+            total_room *= (1 - company_discounts.get('room_stay', 0) / 100)
+            total_supervision *= (1 - company_discounts.get('supervision', 0) / 100)
+            total_nursing *= (1 - company_discounts.get('nursing', 0) / 100)
 
-        if inpatient_days == 1:
-            invoice.extend([(f"الإقامة ({inpatient_data[1]})", total_room), ("اشراف طبي", total_supervision), ("تمريض مركز", total_nursing)])
-        else:
-            invoice.extend([(f"الإقامة ({inpatient_data[1]}) × {inpatient_days} يوم", total_room), (f"اشراف طبي × {inpatient_days} يوم", total_supervision), (f"تمريض مركز × {inpatient_days} يوم", total_nursing)])
+        if inpatient_days == 1: invoice.extend([(f"الإقامة ({inpatient_data[1]})", total_room), ("اشراف طبي", total_supervision), ("تمريض مركز", total_nursing)])
+        else: invoice.extend([(f"الإقامة ({inpatient_data[1]}) × {inpatient_days} يوم", total_room), (f"اشراف طبي × {inpatient_days} يوم", total_supervision), (f"تمريض مركز × {inpatient_days} يوم", total_nursing)])
 
-    # 2. العملية
     surgeon_fee, anesthesia_fee, assistant_fee, room_fee = 0, 0, 0, 0
     if surgery_data:
         service_id = surgery_data[0]
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute('SELECT surgery_category_id FROM services WHERE id = %s', (service_id,))
-        cat_result = cur.fetchone()
-        cur.close()
-        conn.close()
+        conn = get_db_connection(); cur = conn.cursor()
+        cur.execute('SELECT surgery_category_id FROM services WHERE id = %s', (service_id,)); cat_result = cur.fetchone()
+        cur.close(); conn.close()
 
         if cat_result and company_id:
             prices = get_company_surgery_category_price(company_id, cat_result[0])
             surgeon_fee, room_fee = prices[0], prices[1]
-        else:
-            surgeon_fee, room_fee = surgery_data[3], surgery_data[4]
+        else: surgeon_fee, room_fee = surgery_data[3], surgery_data[4]
 
         anesthesia_fee = surgeon_fee * (anesthesia_percent / 100) if has_anesthesia else 0
         assistant_fee = surgeon_fee * (assistant_percent / 100)
-
         if company_id:
-            surgeon_fee = surgeon_fee * (1 - company_discounts.get('surgeon', 0) / 100)
-            room_fee = room_fee * (1 - company_discounts.get('room_operation', 0) / 100)
-            anesthesia_fee = anesthesia_fee * (1 - company_discounts.get('anesthesia', 0) / 100)
-            assistant_fee = assistant_fee * (1 - company_discounts.get('assistant', 0) / 100)
+            surgeon_fee *= (1 - company_discounts.get('surgeon', 0) / 100)
+            room_fee *= (1 - company_discounts.get('room_operation', 0) / 100)
+            anesthesia_fee *= (1 - company_discounts.get('anesthesia', 0) / 100)
+            assistant_fee *= (1 - company_discounts.get('assistant', 0) / 100)
 
         invoice.append(("اتعاب جراح", surgeon_fee))
         if has_anesthesia: invoice.append(("أجور تخدير", anesthesia_fee))
-        invoice.append(("أجر مساعد جراح", assistant_fee))
-        invoice.append(("فتح غرفة عمليات", room_fee))
+        invoice.extend([("أجر مساعد جراح", assistant_fee), ("فتح غرفة عمليات", room_fee)])
 
-    # 3. التشاور
     if company_id and has_anesthesia and surgery_data:
         consultation = get_consultation_price(company_id)
-        if consultation > 0:
-            consultation = consultation * (1 - company_discounts.get('consultation', 0) / 100)
-            invoice.append(("التشاور", consultation))
+        if consultation > 0: consultation *= (1 - company_discounts.get('consultation', 0) / 100); invoice.append(("التشاور", consultation))
 
-    # 4. التحاليل
     if labs_value > 0:
-        if company_id: labs_value = labs_value * (1 - company_discounts.get('labs', 0) / 100)
+        if company_id: labs_value *= (1 - company_discounts.get('labs', 0) / 100)
         invoice.append(("التحاليل", labs_value))
 
-    # 5. شرائح ومسامير
     if has_plates and plates_value > 0:
-        if company_id: plates_value = plates_value * (1 - company_discounts.get('plates', 0) / 100)
+        if company_id: plates_value *= (1 - company_discounts.get('plates', 0) / 100)
         invoice.append(("شرائح ومسامير", plates_value))
         invoice.append((f"هامش ربح {int(profit_margin_percent)}%", plates_value * (profit_margin_percent / 100)))
 
-    # 6. المنظار
     if has_scope and scope_value > 0:
-        if company_id: scope_value = scope_value * (1 - company_discounts.get('scope', 0) / 100)
+        if company_id: scope_value *= (1 - company_discounts.get('scope', 0) / 100)
         invoice.append(("المنظار", scope_value))
 
-    # 7. السي آرم
     if has_c_arm and company_id:
         c_arm_dict = {name: price for name, price in get_company_c_arm_prices(company_id)}
         c_arm_discount = 1 - (company_discounts.get('c_arm', 0) / 100)
@@ -859,25 +551,20 @@ elif current_page == "🏥 القسم الداخلي":
         if c_arm_images_count > 0: invoice.append(("صور السي آرم", c_arm_images_count * c_arm_dict.get('صور السي آرم', 0) * c_arm_discount))
         if c_arm_tech_count > 0: invoice.append(("فني السي آرم", c_arm_tech_count * c_arm_dict.get('فني السي آرم', 0) * c_arm_discount))
 
-    # 8. المستلزمات
     if supplies_value > 0:
-        if company_id: supplies_value = supplies_value * (1 - company_discounts.get('supplies', 0) / 100)
+        if company_id: supplies_value *= (1 - company_discounts.get('supplies', 0) / 100)
         invoice.append(("المستلزمات", supplies_value))
 
-    # 8.5 بنود إضافية
     for item in st.session_state.get('additional_items', []):
         if item['name'] and item['price'] > 0: invoice.append((item['name'], item['price']))
 
-    # 9. الخدمة
     service_fee = sum(v for _, v in invoice) * (service_percent / 100)
     invoice.append(("الخدمة", service_fee))
 
-    # 10. الأدوية
     if meds_value > 0:
-        if company_id: meds_value = meds_value * (1 - company_discounts.get('meds', 0) / 100)
+        if company_id: meds_value *= (1 - company_discounts.get('meds', 0) / 100)
         invoice.append(("الادوية", meds_value))
 
-    # 11. الدمغة
     invoice.append(("الدمغة", stamp_fee))
 
     invoice_data, total = [], 0
@@ -900,10 +587,10 @@ elif st.session_state.is_admin and current_page == "🏢 إدارة الشركا
         if st.button("💾 حفظ الشركة", type="primary"):
             if company_name:
                 success, message = add_company(company_name, contract_notes)
-                if success:
-                    st.success(message); st.rerun()
-                else: st.error(message)
-            else: st.warning("⚠️ الرجاء إدخال اسم الشركة")
+                if success: flash_success(message); st.rerun()
+                else: flash_error(message); st.rerun()
+            else: flash_warning("⚠️ الرجاء إدخال اسم الشركة"); st.rerun()
+
     st.subheader("📋 قائمة الشركات المسجلة")
     companies_df = get_all_companies()
     if not companies_df.empty:
@@ -927,9 +614,9 @@ elif st.session_state.is_admin and current_page == "🧪 إدارة الخدما
             if st.button("💾 حفظ الخدمة", type="primary"):
                 if service_name:
                     success, message = add_service(category_id, service_name)
-                    if success: st.success(message); st.rerun()
-                    else: st.warning(message)
-                else: st.warning("⚠️ الرجاء إدخال اسم الخدمة")
+                    if success: flash_success(message); st.rerun()
+                    else: flash_warning(message); st.rerun()
+                else: flash_warning("⚠️ الرجاء إدخال اسم الخدمة"); st.rerun()
 
     st.subheader("📋 قائمة الخدمات المسجلة")
     conn = get_db_connection()
@@ -943,23 +630,19 @@ elif st.session_state.is_admin and current_page == "🧪 إدارة الخدما
     if not services_df.empty:
         st.dataframe(services_df[['category_name', 'service_name', 'has_price']], column_config={"category_name": "التصنيف", "service_name": "اسم الخدمة", "has_price": "مسعرة"}, hide_index=True, use_container_width=True)
         st.markdown("---"); st.subheader("🗑️ حذف خدمة")
-        
         service_options = {f"{row['service_name']} ({row['category_name']})": row['id'] for _, row in services_df.iterrows()}
         selected_service_display = st.selectbox("اختر الخدمة لحذفها", list(service_options.keys()), key="delete_service_select")
         selected_service_id = service_options[selected_service_display]
         selected_row = services_df[services_df['id'] == selected_service_id].iloc[0]
-        
         st.info(f"📌 **الخدمة:** {selected_row['service_name']} | **التصنيف:** {selected_row['category_name']} | **مسعرة:** {selected_row['has_price']}")
 
         if st.button("🗑️ حذف الخدمة", type="secondary"):
             if selected_row['has_price'] == '✅':
-                st.session_state.show_companies_to_delete = True
-                st.session_state.service_to_delete = selected_service_id
-                st.rerun()
+                st.session_state.show_companies_to_delete = True; st.session_state.service_to_delete = selected_service_id; st.rerun()
             else:
                 success, message = delete_service(selected_service_id)
-                if success: st.success(message); st.rerun()
-                else: st.error(message)
+                if success: flash_success(message); st.rerun()
+                else: flash_error(message); st.rerun()
 
         if st.session_state.get('show_companies_to_delete', False) and st.session_state.get('service_to_delete') == selected_service_id:
             conn = get_db_connection(); cur = conn.cursor()
@@ -977,16 +660,14 @@ elif st.session_state.is_admin and current_page == "🧪 إدارة الخدما
                             conn = get_db_connection(); cur = conn.cursor()
                             cur.execute('DELETE FROM base_prices WHERE company_id = %s AND service_id = %s', (company_id, selected_service_id))
                             conn.commit(); st.cache_data.clear(); cur.close(); conn.close()
-                            st.success(f"✅ تم حذف سعر '{selected_row['service_name']}' من شركة '{company_name}' بنجاح!"); st.rerun()
+                            flash_success(f"✅ تم حذف سعر '{selected_row['service_name']}' من شركة '{company_name}'!"); st.rerun()
                 st.info("💡 بعد حذف كل الأسعار، اضغط على '🗑️ حذف الخدمة' لحذفها نهائياً")
             else:
-                st.session_state.show_companies_to_delete = False
-                success, message = delete_service(selected_service_id)
-                if success: st.success(message); st.rerun()
-                else: st.error(message)
+                st.session_state.show_companies_to_delete = False; success, message = delete_service(selected_service_id)
+                if success: flash_success(message); st.rerun()
+                else: flash_error(message); st.rerun()
 
-            if st.button("❌ إغلاق", key="close_companies"):
-                st.session_state.show_companies_to_delete = False; st.rerun()
+            if st.button("❌ إغلاق", key="close_companies"): st.session_state.show_companies_to_delete = False; st.rerun()
     else: st.info("📭 لا توجد خدمات مسجلة بعد")
 
 
@@ -1003,8 +684,7 @@ elif st.session_state.is_admin and current_page == "🏷️ إدارة الخص�
         with col2:
             category_name = st.selectbox("📂 اختر التصنيف (الملحق)", categories_df['name'].tolist())
             category_id = int(categories_df[categories_df['name'] == category_name]['id'].values[0])
-            conn = get_db_connection(); cur = conn.cursor()
-            cur.execute('SELECT COUNT(*) FROM services WHERE category_id = %s', (category_id,))
+            conn = get_db_connection(); cur = conn.cursor(); cur.execute('SELECT COUNT(*) FROM services WHERE category_id = %s', (category_id,))
             st.caption(f"📊 عدد الخدمات في هذا التصنيف: {cur.fetchone()[0]}"); cur.close(); conn.close()
         with col3:
             conn = get_db_connection(); cur = conn.cursor()
@@ -1017,10 +697,10 @@ elif st.session_state.is_admin and current_page == "🏷️ إدارة الخص�
         if st.button("💾 حفظ الخصم", type="primary"):
             if discount_percent >= 0:
                 success, message = add_discount(company_id, category_id, discount_percent)
-                if success: st.success(message); st.rerun()
-                else: st.error(message)
-            else: st.warning("⚠️ الرجاء إدخال نسبة خصم صحيحة")
-        
+                if success: flash_success(message); st.rerun()
+                else: flash_error(message); st.rerun()
+            else: flash_warning("⚠️ الرجاء إدخال نسبة خصم صحيحة"); st.rerun()
+
         st.markdown("---"); st.subheader("📋 خصومات الشركة الحالية")
         conn = get_db_connection()
         discounts_df = pd.read_sql_query('SELECT cat.name as category, d.discount_percent FROM discounts d JOIN categories cat ON cat.id = d.category_id WHERE d.company_id = %s ORDER BY cat.name', conn, params=(company_id,))
@@ -1036,7 +716,6 @@ elif st.session_state.is_admin and current_page == "⚙️ إعدادات الق
 
     with tab1:
         st.subheader("⚙️ الإعدادات الثابتة")
-        st.markdown("هنا تحدد النسب الثابتة للفاتورة")
         settings = get_all_inpatient_settings()
         with st.form(key="settings_form"):
             new_values = {}
@@ -1047,11 +726,10 @@ elif st.session_state.is_admin and current_page == "⚙️ إعدادات الق
             submit_settings = st.form_submit_button("💾 حفظ الإعدادات", type="primary", use_container_width=True)
         if submit_settings:
             for key, val in new_values.items(): update_inpatient_setting(key, val)
-            st.success("✅ تم حفظ الإعدادات بنجاح!"); st.rerun()
+            flash_success("✅ تم حفظ الإعدادات بنجاح!"); st.rerun()
 
     with tab2:
         st.subheader("🛏️ أسعار الإقامة والرعاية")
-        st.markdown("حدد أسعار كل نوع إقامة لكل شركة على حدة")
         companies_df = get_all_companies()
         if companies_df.empty: st.warning("⚠️ لا توجد شركات مسجلة.")
         else:
@@ -1078,11 +756,10 @@ elif st.session_state.is_admin and current_page == "⚙️ إعدادات الق
                     saved = 0
                     for room_id, (rp, ms, nc) in inpatient_values.items():
                         if update_company_inpatient_price(company_id, room_id, rp, ms, nc)[0]: saved += 1
-                    st.success(f"✅ تم حفظ أسعار {saved} نوع إقامة لشركة {company_name} بنجاح!"); st.rerun()
+                    flash_success(f"✅ تم حفظ أسعار {saved} نوع إقامة لشركة {company_name} بنجاح!"); st.rerun()
 
     with tab3:
         st.subheader("🔪 أسعار تصنيفات العمليات")
-        st.markdown("حدد اتعاب الجراح وفتح غرفة العمليات لكل تصنيف لكل شركة")
         companies_df = get_all_companies()
         if companies_df.empty: st.warning("⚠️ لا توجد شركات مسجلة.")
         else:
@@ -1108,11 +785,10 @@ elif st.session_state.is_admin and current_page == "⚙️ إعدادات الق
                     saved = 0
                     for cat_id, (sf, rf) in cat_values.items():
                         if update_company_surgery_category_price(company_id, cat_id, sf, rf)[0]: saved += 1
-                    st.success(f"✅ تم حفظ أسعار {saved} تصنيف لشركة {company_name} بنجاح!"); st.rerun()
+                    flash_success(f"✅ تم حفظ أسعار {saved} تصنيف لشركة {company_name} بنجاح!"); st.rerun()
 
     with tab4:
         st.subheader("🩻 أسعار السي آرم")
-        st.markdown("حدد سعر كل بند من بنود السي آرم لكل شركة على حدة")
         companies_df = get_all_companies()
         if companies_df.empty: st.warning("⚠️ لا توجد شركات مسجلة.")
         else:
@@ -1131,11 +807,10 @@ elif st.session_state.is_admin and current_page == "⚙️ إعدادات الق
                 saved = 0
                 for item_name, price in c_arm_values.items():
                     if update_company_c_arm_price(company_id, item_name, price)[0]: saved += 1
-                st.success(f"✅ تم حفظ أسعار {saved} بند لشركة {company_name} بنجاح!"); st.rerun()
+                flash_success(f"✅ تم حفظ أسعار {saved} بند لشركة {company_name} بنجاح!"); st.rerun()
 
     with tab5:
         st.subheader("💬 سعر التشاور لكل شركة")
-        st.markdown("حدد سعر التشاور لكل شركة على حدة")
         companies_df = get_all_companies()
         if companies_df.empty: st.warning("⚠️ لا توجد شركات مسجلة.")
         else:
@@ -1152,11 +827,10 @@ elif st.session_state.is_admin and current_page == "⚙️ إعدادات الق
                 saved = 0
                 for c_id, price in consultation_values.items():
                     if update_consultation_price(c_id, price)[0]: saved += 1
-                st.success(f"✅ تم حفظ أسعار {saved} شركة بنجاح!"); st.rerun()
+                flash_success(f"✅ تم حفظ أسعار {saved} شركة بنجاح!"); st.rerun()
 
     with tab6:
         st.subheader("🏷️ خصومات البنود لكل شركة")
-        st.markdown("حدد نسبة خصم لكل بند في القسم الداخلي (اترك 0 لو مفيش خصم)")
         companies_df = get_all_companies()
         if companies_df.empty: st.warning("⚠️ لا توجد شركات مسجلة.")
         else:
@@ -1166,7 +840,7 @@ elif st.session_state.is_admin and current_page == "⚙️ إعدادات الق
             with st.form(key=f"discounts_form_{company_id}"):
                 discount_values = {}
                 for item_key, item_label in INPATIENT_DISCOUNT_ITEMS.items():
-                    current_discount = get_company_item_discount(company_id, item_key) if 'get_company_item_discount' in globals() else get_all_company_discounts(company_id).get(item_key, 0)
+                    current_discount = get_all_company_discounts(company_id).get(item_key, 0)
                     col1, col2 = st.columns([3, 1])
                     with col1: st.write(f"**{item_label}**")
                     with col2: discount_values[item_key] = st.number_input("نسبة الخصم %", min_value=0.0, max_value=100.0, value=float(current_discount), step=0.5, format="%.1f", key=f"disc_{company_id}_{item_key}", label_visibility="collapsed")
@@ -1175,7 +849,7 @@ elif st.session_state.is_admin and current_page == "⚙️ إعدادات الق
                 saved = 0
                 for item_key, discount in discount_values.items():
                     if update_company_item_discount(company_id, item_key, discount)[0]: saved += 1
-                st.success(f"✅ تم حفظ خصومات {saved} بند لشركة {company_name} بنجاح!"); st.rerun()
+                flash_success(f"✅ تم حفظ خصومات {saved} بند لشركة {company_name} بنجاح!"); st.rerun()
 
 
 # ==================== عرض البيانات ====================
@@ -1234,24 +908,28 @@ elif st.session_state.is_admin and current_page == "📤 رفع لائحة أس�
                 if st.button("🚀 رفع الأسعار", type="primary"):
                     with st.spinner("جاري رفع الأسعار..."):
                         uploaded, not_found, errors = upload_price_list_from_excel(df, company_id)
-                        st.subheader("📊 نتائج الرفع")
-                        col1, col2, col3 = st.columns(3)
-                        with col1: st.metric("✅ تم رفعها", len(uploaded))
-                        with col2: st.metric("❌ غير موجودة", len(not_found))
-                        with col3: st.metric("⚠️ أخطاء", len(errors))
-                        if uploaded:
-                            st.subheader("✅ الخدمات التي تم رفعها")
-                            st.dataframe(pd.DataFrame(uploaded), use_container_width=True)
-                        if not_found:
-                            st.subheader("❌ الخدمات غير الموجودة في النظام")
-                            st.warning(f"الخدمات التالية غير موجودة ولم يتم رفعها: {len(not_found)} خدمة")
-                            for service in not_found[:50]: st.write(f"- {service}")
-                            if len(not_found) > 50: st.write(f"... و {len(not_found) - 50} خدمات أخرى")
-                        if errors:
-                            st.subheader("⚠️ الأخطاء")
-                            for error in errors: st.error(error)
-                        if not uploaded and not not_found and not errors: st.info("لم يتم رفع أي أسعار. تأكد من أن الملف يحتوي على بيانات صحيحة.")
-            except Exception as e: st.error(f"❌ خطأ في قراءة الملف: {e}")
+                        if uploaded or not_found or errors:
+                            flash_success("تمت عملية الرفع بنجاح!"); st.rerun()
+                        else: flash_warning("لم يتم رفع أي أسعار. تأكد من البيانات."); st.rerun()
+            except Exception as e: flash_error(f"❌ خطأ في قراءة الملف: {e}"); st.rerun()
+
+        # عرض النتائج لو كانت محفوظة (مش بنعمل rerun هنا عشان نعرض النتيجة)
+        if 'uploaded' in locals():
+            st.subheader("📊 نتائج الرفع")
+            col1, col2, col3 = st.columns(3)
+            with col1: st.metric("✅ تم رفعها", len(uploaded))
+            with col2: st.metric("❌ غير موجودة", len(not_found))
+            with col3: st.metric("⚠️ أخطاء", len(errors))
+            if uploaded:
+                st.subheader("✅ الخدمات التي تم رفعها")
+                st.dataframe(pd.DataFrame(uploaded), use_container_width=True)
+            if not_found:
+                st.subheader("❌ الخدمات غير الموجودة في النظام")
+                for service in not_found[:50]: st.write(f"- {service}")
+                if len(not_found) > 50: st.write(f"... و {len(not_found) - 50} خدمات أخرى")
+            if errors:
+                st.subheader("⚠️ الأخطاء")
+                for error in errors: st.error(error)
 
 
 # ==================== تعديل الأسعار الفردية ====================
@@ -1297,7 +975,7 @@ elif st.session_state.is_admin and current_page == "✏️ تعديل الأسع
                             try:
                                 cur.execute('INSERT INTO base_prices (company_id, service_id, price) VALUES (%s, %s, %s) ON CONFLICT (company_id, service_id) DO UPDATE SET price = EXCLUDED.price', (company_id, service_id, price))
                                 saved_companies.append({'name': company_name, 'old_price': old_price, 'new_price': price})
-                            except Exception as e: st.error(f"خطأ في حفظ سعر {company_name}: {e}")
+                            except Exception as e: flash_error(f"خطأ في حفظ سعر {company_name}: {e}")
                         else: unchanged_companies.append(company_name)
                     else:
                         cur.execute('SELECT name FROM companies WHERE id = %s', (company_id,))
@@ -1305,15 +983,5 @@ elif st.session_state.is_admin and current_page == "✏️ تعديل الأسع
                 conn.commit(); st.cache_data.clear(); cur.close(); conn.close()
 
                 if saved_companies:
-                    st.success(f"✅ تم حفظ أسعار {len(saved_companies)} شركة بنجاح!")
-                    st.subheader("📋 الشركات اللي اتغير سعرها:")
-                    detail_data = []
-                    for item in saved_companies:
-                        if item['old_price'] is None:
-                            detail_data.append({"الشركة": item['name'], "السعر القديم": "غير مسعرة", "السعر الجديد": f"{item['new_price']:,.2f} ج.م"})
-                        else:
-                            detail_data.append({"الشركة": item['name'], "السعر القديم": f"{item['old_price']:,.2f} ج.م", "السعر الجديد": f"{item['new_price']:,.2f} ج.م"})
-                    st.dataframe(pd.DataFrame(detail_data), hide_index=True, use_container_width=True)
-                else: st.info("ℹ️ لم يتم تغيير أي سعر.")
-                if unchanged_companies: st.info(f"ℹ️ {len(unchanged_companies)} شركة لم يتغير سعرها.")
-                if skipped_companies: st.warning(f"⚠️ تم تخطي {len(skipped_companies)} شركة (السعر = 0).")
+                    flash_success(f"✅ تم حفظ أسعار {len(saved_companies)} شركة بنجاح!"); st.rerun()
+                else: flash_warning("ℹ️ لم يتم تغيير أي سعر."); st.rerun()
