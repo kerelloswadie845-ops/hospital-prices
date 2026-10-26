@@ -254,7 +254,13 @@ def calculate_patient_share(base_price, patient_percent, discount_percent):
     company_share_before_discount = base_price - patient_share
     company_discount = company_share_before_discount * (discount_percent / 100)
     company_final = company_share_before_discount - company_discount
-    return {'patient_share': patient_share, 'company_final': company_final, 'base_price': base_price, 'discount_percent': discount_percent}
+    return {
+        'patient_share': patient_share, 
+        'company_discount': company_discount, # ضفنا دي
+        'company_final': company_final, 
+        'base_price': base_price, 
+        'discount_percent': discount_percent
+    }
 
 def normalize_service_name(name):
     if pd.isna(name): return ""
