@@ -363,6 +363,7 @@ if current_page == "🔍 البحث عن سعر":
         border-radius: 12px;
         padding: 40px;
         box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+        direction: rtl; /* ضيف السطر ده هنا كمان */
         max-width: 600px;
         margin: 0 auto;
         font-family: 'Courier New', Courier, monospace; /* خط يشبه ماكينات الكاشير */
@@ -393,6 +394,7 @@ if current_page == "🔍 البحث عن سعر":
     .receipt-row {
         display: flex;
         justify-content: space-between;
+        direction: rtl; /* السطر ده هو اللي بيقلب الترتيب */
         margin-bottom: 12px;
         color: #334155;
         font-size: 16px;
