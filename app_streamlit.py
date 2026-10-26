@@ -935,53 +935,93 @@ elif st.session_state.is_admin and current_page == "📤 رفع لائحة أس�
 # ==================== تعديل الأسعار الفردية ====================
 elif st.session_state.is_admin and current_page == "✏️ تعديل الأسعار الفردية":
     st.header("✏️ تسعير خدمة لأكتر من شركة")
-    st.markdown("**📌 التعليمات:**\n- اختر الخدمة\n- هتظهرلك كل الشركات مع خانة السعر\n- ادخل السعر لكل شركة عاوزها\n- اضغط '💾 حفظ جميع الأسعار' مرة واحدة")
+    st.markdown("""
+    **📌 التعليمات:**
+    - اختر الخدمة من القائمة
+    - استخدم **أيقونة البحث (🔍)** أعلى الجدول للبحث عن شركة معينة بسرعة
+    - أو اضغط على عنوان عمود **"الشركة"** لترتيبهم أبجدياً
+    - عدل السعر في الخانة اللي قدام الشركة
+    - اضغط "💾 حفظ جميع الأسعار" مرة واحدة
+    """)
+
     services_df = get_all_services()
 
-    if services_df.empty: st.warning("⚠️ لا توجد خدمات مسجلة.")
+    if services_df.empty:
+        st.warning("⚠️ لا توجد خدمات مسجلة.")
     else:
         service_name = st.selectbox("🔍 اختر الخدمة", services_df['name'].tolist())
         service_id = int(services_df[services_df['name'] == service_name]['id'].values[0])
 
-        conn = get_db_connection(); cur = conn.cursor()
+        conn = get_db_connection()
+        cur = conn.cursor()
         cur.execute('SELECT c.id, c.name, bp.price FROM companies c LEFT JOIN base_prices bp ON bp.company_id = c.id AND bp.service_id = %s ORDER BY c.name', (service_id,))
-        companies_data = cur.fetchall(); cur.close(); conn.close()
+        companies_data = cur.fetchall()
+        cur.close()
+        conn.close()
 
-        if not companies_data: st.warning("⚠️ لا توجد شركات مسجلة.")
+        if not companies_data:
+            st.warning("⚠️ لا توجد شركات مسجلة.")
         else:
             st.subheader(f"📋 تسعير الخدمة: {service_name}")
-            st.caption(f"📊 عدد الشركات: {len(companies_data)}")
+            st.caption("💡 يمكنك البحث أو الترتيب من خلال الجدول أدناه.")
             st.markdown("---")
-            with st.form(key=f"prices_form_{service_id}"):
-                prices_dict = {}
-                for company_id, company_name, current_price in companies_data:
-                    col1, col2 = st.columns([3, 1])
-                    with col1: st.write(f"🏢 **{company_name}**")
-                    with col2: prices_dict[company_id] = st.number_input("السعر", min_value=0.0, value=float(current_price) if current_price else 0.0, step=1.0, format="%.2f", key=f"price_{company_id}_{service_id}", label_visibility="collapsed")
-                st.markdown("---")
-                submit = st.form_submit_button("💾 حفظ جميع الأسعار", type="primary", use_container_width=True)
 
-            if submit:
-                conn = get_db_connection(); cur = conn.cursor()
-                saved_companies, unchanged_companies, skipped_companies = [], [], []
-                for company_id, price in prices_dict.items():
-                    if price > 0:
-                        cur.execute('SELECT price FROM base_prices WHERE company_id = %s AND service_id = %s', (company_id, service_id))
-                        old_res = cur.fetchone(); old_price = old_res[0] if old_res else None
-                        cur.execute('SELECT name FROM companies WHERE id = %s', (company_id,))
-                        company_name = cur.fetchone()[0]
+            # تجهيز البيانات للجدول
+            df_companies = pd.DataFrame(companies_data, columns=['ID', 'الشركة', 'السعر'])
+            df_companies['السعر'] = df_companies['السعر'].fillna(0.0)
 
-                        if old_price is None or old_price != price:
+            # عرض الجدول التفاعلي
+            edited_df = st.data_editor(
+                df_companies,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "ID": None,  # إخفاء عمود الـ ID من الواجهة
+                    "الشركة": st.column_config.TextColumn("الشركة", disabled=True, width="large"),
+                    "السعر": st.column_config.NumberColumn("السعر (ج.م)", min_value=0.0, step=1.0, format="%.2f", width="medium")
+                }
+            )
+
+            st.markdown("---")
+
+            if st.button("💾 حفظ جميع الأسعار", type="primary", use_container_width=True):
+                conn = get_db_connection()
+                cur = conn.cursor()
+                saved_count = 0
+                skipped_count = 0
+
+                for index, row in edited_df.iterrows():
+                    c_id = int(row['ID'])
+                    new_price = row['السعر']
+
+                    if new_price is not None and new_price > 0:
+                        # التحقق لو السعر اتغير فعلاً
+                        cur.execute('SELECT price FROM base_prices WHERE company_id = %s AND service_id = %s', (c_id, service_id))
+                        old_res = cur.fetchone()
+                        old_price = old_res[0] if old_res else None
+
+                        if old_price != new_price:
                             try:
-                                cur.execute('INSERT INTO base_prices (company_id, service_id, price) VALUES (%s, %s, %s) ON CONFLICT (company_id, service_id) DO UPDATE SET price = EXCLUDED.price', (company_id, service_id, price))
-                                saved_companies.append({'name': company_name, 'old_price': old_price, 'new_price': price})
-                            except Exception as e: flash_error(f"خطأ في حفظ سعر {company_name}: {e}")
-                        else: unchanged_companies.append(company_name)
+                                cur.execute('''
+                                    INSERT INTO base_prices (company_id, service_id, price)
+                                    VALUES (%s, %s, %s)
+                                    ON CONFLICT (company_id, service_id)
+                                    DO UPDATE SET price = EXCLUDED.price
+                                ''', (c_id, service_id, new_price))
+                                saved_count += 1
+                            except Exception as e:
+                                st.error(f"خطأ في حفظ سعر {row['الشركة']}: {e}")
                     else:
-                        cur.execute('SELECT name FROM companies WHERE id = %s', (company_id,))
-                        skipped_companies.append(cur.fetchone()[0])
-                conn.commit(); st.cache_data.clear(); cur.close(); conn.close()
+                        skipped_count += 1
 
-                if saved_companies:
-                    flash_success(f"✅ تم حفظ أسعار {len(saved_companies)} شركة بنجاح!"); st.rerun()
-                else: flash_warning("ℹ️ لم يتم تغيير أي سعر."); st.rerun()
+                conn.commit()
+                st.cache_data.clear()
+                cur.close()
+                conn.close()
+
+                if saved_count > 0:
+                    flash_success(f"✅ تم حفظ أسعار {saved_count} شركة بنجاح!")
+                    st.rerun()
+                else:
+                    flash_warning("ℹ️ لم يتم تغيير أي سعر (تأكد من إدخال أسعار أكبر من صفر).")
+                    st.rerun()
