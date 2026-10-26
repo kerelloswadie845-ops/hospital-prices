@@ -425,7 +425,6 @@ if current_page == "🔍 البحث عن سعر":
     """, unsafe_allow_html=True)
 
     st.header("🔍 البحث عن سعر خدمة")
-    st.info("📌 **ملاحظة:** هذه الصفحة مخصصة لخدمات العيادات الخارجية (كشوفات، تحاليل، أشعة، إلخ).")
 
     companies_df = get_all_companies()
     services_df = get_all_services()
