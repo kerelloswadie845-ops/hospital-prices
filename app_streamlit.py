@@ -256,7 +256,7 @@ def calculate_patient_share(base_price, patient_percent, discount_percent):
     company_final = company_share_before_discount - company_discount
     return {
         'patient_share': patient_share, 
-        'company_discount': company_discount, # ضفنا دي
+        'company_discount': company_discount,
         'company_final': company_final, 
         'base_price': base_price, 
         'discount_percent': discount_percent
@@ -477,7 +477,7 @@ if current_page == "🔍 البحث عن سعر":
                         'patient_pct': patient_percent,
                         'base_price': result['base_price'],
                         'discount': result['discount_percent'],
-                        'discount_amount': calculation['company_discount'], # ضفنا دي
+                        'discount_amount': calculation['company_discount'],
                         'total_base': total_base,
                         'patient_share': calculation['patient_share'],
                         'company_share': calculation['company_final']
@@ -508,12 +508,11 @@ if current_page == "🔍 البحث عن سعر":
             
             table_rows = ""
             grand_total_base = 0
-            grand_total_discount = 0 
+            grand_total_discount = 0
             grand_total_patient = 0
             grand_total_company = 0
 
             for item in st.session_state.invoice_cart:
-                # السطور دي لازم تكون مزحلقة (واخدة مسافة) جوه الـ for
                 table_rows += f"<tr><td>{item['service']}</td><td>{item['qty']}</td><td>{item['base_price']:,.2f}</td><td>{item['discount']}%</td><td style='color:#EF4444;'>{item.get('discount_amount', 0.0):,.2f}</td><td>{item['patient_share']:,.2f}</td><td>{item['company_share']:,.2f}</td></tr>"
                 
                 grand_total_base += item['total_base']
@@ -567,6 +566,7 @@ if current_page == "🔍 البحث عن سعر":
 </div>"""
             
             st.markdown(receipt_html, unsafe_allow_html=True)
+
 
 # ==================== صفحة القسم الداخلي ====================
 elif current_page == "🏥 القسم الداخلي":
@@ -627,9 +627,15 @@ elif current_page == "🏥 القسم الداخلي":
         with col2: c_arm_images_count = st.number_input("عدد الصور", min_value=0, value=0, step=1)
         with col3: c_arm_tech_count = st.number_input("عدد الفني", min_value=0, value=0, step=1)
 
+    # التعديل الجديد: فلاتر التخدير والمساعد
     has_anesthesia = True
-    if surgery_data and "بسيطة" in surgery_data[2]:
-        has_anesthesia = st.checkbox("💉 العملية لها تخدير؟", value=True)
+    has_assistant = True
+    if surgery_data:
+        col_chk1, col_chk2 = st.columns(2)
+        with col_chk1:
+            has_anesthesia = st.checkbox("💉 تفعيل التخدير والتشاور", value=True)
+        with col_chk2:
+            has_assistant = st.checkbox("🩺 تفعيل مساعد الجراح", value=True)
 
     st.markdown("---"); st.markdown("**➕ بنود إضافية:**")
     if 'additional_items' not in st.session_state: st.session_state.additional_items = []
@@ -685,8 +691,10 @@ elif current_page == "🏥 القسم الداخلي":
             surgeon_fee, room_fee = prices[0], prices[1]
         else: surgeon_fee, room_fee = surgery_data[3], surgery_data[4]
 
+        # التعديل الجديد: حساب التخدير والمساعد بناءً على الفلاج
         anesthesia_fee = surgeon_fee * (anesthesia_percent / 100) if has_anesthesia else 0
-        assistant_fee = surgeon_fee * (assistant_percent / 100)
+        assistant_fee = surgeon_fee * (assistant_percent / 100) if has_assistant else 0
+        
         if company_id:
             surgeon_fee *= (1 - company_discounts.get('surgeon', 0) / 100)
             room_fee *= (1 - company_discounts.get('room_operation', 0) / 100)
@@ -695,7 +703,8 @@ elif current_page == "🏥 القسم الداخلي":
 
         invoice.append(("اتعاب جراح", surgeon_fee))
         if has_anesthesia: invoice.append(("أجور تخدير", anesthesia_fee))
-        invoice.extend([("أجر مساعد جراح", assistant_fee), ("فتح غرفة عمليات", room_fee)])
+        if has_assistant: invoice.append(("أجر مساعد جراح", assistant_fee))
+        invoice.append(("فتح غرفة عمليات", room_fee))
 
     if company_id and has_anesthesia and surgery_data:
         consultation = get_consultation_price(company_id)
@@ -1208,17 +1217,14 @@ elif st.session_state.is_admin and current_page == "✏️ تعديل الأسع
 
         if not companies_data: st.warning("⚠️ لا توجد شركات مسجلة.")
         else:
-            # تجهيز البيانات
             df_companies = pd.DataFrame(companies_data, columns=['ID', 'الشركة', 'السعر'])
             df_companies['السعر'] = df_companies['السعر'].fillna(0.0)
 
             st.markdown("---")
             st.subheader(f"📋 تسعير الخدمة: {service_name}")
             
-            # 🔍 خانة البحث الذكية
             search_query = st.text_input("🔍 ابحث عن شركة بالاسم:", placeholder="اكتب جزءاً من اسم الشركة (مثلاً: المصرية، وادي...)").strip()
             
-            # تصفية الجدول بناءً على البحث
             if search_query:
                 filtered_df = df_companies[df_companies['الشركة'].str.contains(search_query, case=False, na=False)]
             else:
@@ -1229,13 +1235,12 @@ elif st.session_state.is_admin and current_page == "✏️ تعديل الأسع
             else:
                 st.caption(f"تم العثور على {len(filtered_df)} شركة.")
                 
-                # عرض الجدول التفاعلي
                 edited_df = st.data_editor(
                     filtered_df,
                     use_container_width=True,
                     hide_index=True,
                     column_config={
-                        "ID": None,  # إخفاء الـ ID
+                        "ID": None, 
                         "الشركة": st.column_config.TextColumn("الشركة", disabled=True),
                         "السعر": st.column_config.NumberColumn("السعر (ج.م)", min_value=0.0, step=1.0, format="%.2f")
                     }
@@ -1243,7 +1248,6 @@ elif st.session_state.is_admin and current_page == "✏️ تعديل الأسع
 
                 st.markdown("---")
                 
-                # زر الحفظ
                 if st.button("💾 حفظ جميع الأسعار", type="primary", use_container_width=True):
                     conn = get_db_connection()
                     cur = conn.cursor()
